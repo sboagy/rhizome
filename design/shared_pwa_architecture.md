@@ -1,6 +1,24 @@
 # TuneTrees Multi-Repo Architecture
 
-Mermaid diagram derived from `design/shared_pwa_architecture.drawio` multi-repo tab.
+# Shared PWA Architecture
+
+> **🔴 AI AGENT DIRECTIVE: STATUS = IN TRANSITION 🔴**
+> The architecture of this workspace is currently in active transition.
+> You MUST read the "Current State" and "Target State" sections below carefully.
+> Unless explicitly instructed by the user to "build toward the target architecture," you must write code and migrations that respect the **Current State**.
+
+## 1. Current State (What is implemented today)
+
+_(You will need to write a brief bulleted list here describing how things actually work right now. For example:)_
+
+- `tunetrees` is currently functioning as a mostly standalone application.
+- `rhizome` is in the process of being extracted; shared UI or auth logic has not been fully migrated out of the app repos yet, etc.
+- The strict database namespacing (`public` vs `cubefsrs`) is not implemented yet.
+- `cubefsrs` is a work in progress.
+
+## 2. Target Architecture (Where we are moving)
+
+The following Mermaid diagram represents our finalized, target architecture. This is the structural goal we are migrating toward. As we refactor, all new boundaries, dependencies, and infrastructure changes should align with this map.
 
 ```mermaid
 flowchart TD
@@ -20,16 +38,16 @@ flowchart TD
 
     subgraph Workspace [Multi-Repo Workspace]
         direction TB
-        
+
         subgraph Packages [Shared Packages & Tooling]
             direction LR
-            
+
             subgraph Rhizome [rhizome shared base]
                 direction TB
                 R_Core[Shared runtime core & auth UI]:::module
                 R_CLI[Supabase CLI scripts]:::module
                 R_Psql[Shared psql scripts]:::module
-                
+
                 %% Force vertical stacking inside the repo
                 R_Core ~~~ R_CLI ~~~ R_Psql
             end
@@ -38,7 +56,7 @@ flowchart TD
                 direction TB
                 O_CodeGen[Codegen<br/>Postgres Introspection]:::module
                 O_Worker[Worker runtime core]:::module
-                
+
                 %% Force vertical stacking inside the repo
                 O_CodeGen ~~~ O_Worker
             end
@@ -46,7 +64,7 @@ flowchart TD
 
         subgraph Apps [PWA Applications]
             direction LR
-            
+
             subgraph TuneTrees [tunetrees pwa app]
                 direction TB
                 T_Conf[oosync.codegen.config.json]:::module
@@ -55,12 +73,12 @@ flowchart TD
                 T_Schema[Schema + oosync runtime]:::module
                 T_Mig[migrations and seeds]:::module
                 T_DB[(SQLite WASM)]:::db
-                
+
                 %% Force vertical stacking inside the repo
                 T_Conf ~~~ T_FSRS ~~~ T_App ~~~ T_Schema ~~~ T_Mig ~~~ T_DB
             end
 
-            subgraph CubeFSRS [cubefsrs2 pwa app]
+            subgraph CubeFSRS [cubefsrs pwa app]
                 direction TB
                 C_Conf[oosync.codegen.config.json]:::module
                 C_FSRS["ts-fsrs (npm lib)"]:::lib
@@ -68,7 +86,7 @@ flowchart TD
                 C_Schema[Schema + oosync runtime]:::module
                 C_Mig[migrations and seeds]:::module
                 C_DB[(SQLite WASM)]:::db
-                
+
                 %% Force vertical stacking inside the repo
                 C_Conf ~~~ C_FSRS ~~~ C_App ~~~ C_Schema ~~~ C_Mig ~~~ C_DB
             end
@@ -96,7 +114,7 @@ flowchart TD
     %% ==========================================
     %% EDGES (ALL POINTING TOP-TO-BOTTOM)
     %% ==========================================
-    
+
     L_TT -->|Introspected by| O_CodeGen
     L_Cube -->|Introspected by| O_CodeGen
 
@@ -123,7 +141,7 @@ flowchart TD
     %% ==========================================
     %% INVISIBLE LAYOUT SPINE
     %% ==========================================
-    
+
     %% 1. Force items left-to-right inside horizontal wrappers
     L_TT ~~~ L_Cube ~~~ L_Shared
     R_Core ~~~ O_CodeGen
@@ -140,3 +158,7 @@ flowchart TD
     GHActions ~~~ CFW
     CFP ~~~ P_Shared
 ```
+
+## 3. Hard Boundaries & Invariants (Target State)
+
+_(Insert the rules we wrote earlier about sibling app isolation, rhizome being domain-agnostic, and Supabase namespacing here)._

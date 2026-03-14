@@ -1,6 +1,6 @@
 <mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.6.1 Chrome/142.0.7444.265 Electron/39.8.0 Safari/537.36" version="29.6.1" pages="2">
   <diagram name="multi-repo" id="Dmq5jlEQJg-yQEGn5iFn">
-    <mxGraphModel dx="1452" dy="1040" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+    <mxGraphModel dx="1426" dy="970" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -22,7 +22,7 @@
         <mxCell id="toRDvkxufy0X_Ytjyp92-6" parent="1" style="whiteSpace=wrap;html=1;sketch=1;hachureGap=4;jiggle=0;curveFitting=1;fontFamily=Helvetica;verticalAlign=top;align=left;spacingTop=0;spacing=2;spacingLeft=10;fontSize=14;sketchStyle=rough;" value="tunetrees (pwa app) [repo]" vertex="1">
           <mxGeometry height="290" width="240" x="120" y="263" as="geometry" />
         </mxCell>
-        <mxCell id="toRDvkxufy0X_Ytjyp92-7" parent="1" style="whiteSpace=wrap;html=1;sketch=1;hachureGap=4;jiggle=0;curveFitting=1;fontFamily=Helvetica;verticalAlign=top;align=left;spacingTop=0;spacing=2;spacingLeft=10;fontSize=14;sketchStyle=rough;" value="cubefsrs2 (pwa app)&amp;nbsp;[repo]" vertex="1">
+        <mxCell id="toRDvkxufy0X_Ytjyp92-7" parent="1" style="whiteSpace=wrap;html=1;sketch=1;hachureGap=4;jiggle=0;curveFitting=1;fontFamily=Helvetica;verticalAlign=top;align=left;spacingTop=0;spacing=2;spacingLeft=10;fontSize=14;sketchStyle=rough;" value="cubefsrs (pwa app)&amp;nbsp;[repo]" vertex="1">
           <mxGeometry height="290" width="240" x="480" y="263" as="geometry" />
         </mxCell>
         <mxCell id="toRDvkxufy0X_Ytjyp92-8" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;sketch=1;hachureGap=4;jiggle=0;curveFitting=1;fontFamily=Helvetica;verticalAlign=top;spacingTop=2;sketchStyle=rough;" value="&lt;div&gt;Local Supabase (dev env or CI)&lt;/div&gt;&lt;div&gt;(Postgres + Auth + Realtime)&lt;/div&gt;" vertex="1">

@@ -2,23 +2,36 @@
 
 # Shared PWA Architecture
 
-> **🔴 AI AGENT DIRECTIVE: STATUS = IN TRANSITION 🔴**
-> The architecture of this workspace is currently in active transition.
-> You MUST read the "Current State" and "Target State" sections below carefully.
-> Unless explicitly instructed by the user to "build toward the target architecture," you must write code and migrations that respect the **Current State**.
+**🔴 AI AGENT DIRECTIVE: STATUS = IN TRANSITION 🔴**
+The architecture of this workspace is currently in active transition.
+You MUST read the "Current State" and "Target State" sections below carefully.
+Unless explicitly instructed by the user to "build toward the target architecture," you must write code and migrations that respect the **Current State**.
 
 ## 1. Current State (What is implemented today)
 
-_(You will need to write a brief bulleted list here describing how things actually work right now. For example:)_
+### rhizome
+
+- is in the process of being extracted;
+- shared UI or auth logic has not been migrated out of the app repos yet, etc.
+
+## oosync
+
+- Is relativily stable per diagram.
+- References to this library will likely transition to using https://github.com/wclr/yalc .
+
+### tunetrees
 
 - `tunetrees` is currently functioning as a mostly standalone application.
-- `rhizome` is in the process of being extracted; shared UI or auth logic has not been fully migrated out of the app repos yet, etc.
+
+### cubefsrs
+
+- Very much a work in progress.
+- transitioning from firebase to supabase.
 - The strict database namespacing (`public` vs `cubefsrs`) is not implemented yet.
-- `cubefsrs` is a work in progress.
 
 ## 2. Target Architecture (Where we are moving)
 
-The following Mermaid diagram represents our finalized, target architecture. This is the structural goal we are migrating toward. As we refactor, all new boundaries, dependencies, and infrastructure changes should align with this map.
+The following Mermaid diagram represents our target architecture. This is the structural goal we are migrating toward. As we refactor, all new boundaries, dependencies, and infrastructure changes should align with this map.
 
 ```mermaid
 flowchart TD
@@ -161,4 +174,21 @@ flowchart TD
 
 ## 3. Hard Boundaries & Invariants (Target State)
 
-_(Insert the rules we wrote earlier about sibling app isolation, rhizome being domain-agnostic, and Supabase namespacing here)._
+### 1. The `rhizome` Isolation Boundary
+
+- `rhizome` is the strictly domain-agnostic base repository for both `tunetrees` and `cubefsrs`.
+- It owns the shared runtime core, authentication UI, and infrastructure scripts.
+- **Invariant:** You must never place TuneTrees-specific or CubeFSRS-specific domain logic, schemas, or types inside `rhizome`. If it is not applicable to _both_ apps, it belongs in the app repo.
+
+### 2. Sibling App Isolation (`tunetrees` vs `cubefsrs`)
+
+- These are parallel, isolated Progressive Web Apps.
+- **Invariant:** `tunetrees` and `cubefsrs` must never import from or reference each other. Their only shared code dependency is `rhizome`.
+
+### 3. Supabase Namespacing
+
+- We operate a shared Supabase instance with strict namespace boundaries.
+- `tunetrees` operates exclusively within the `public` schema.
+- `cubefsrs` operates exclusively within the `cubefsrs` schema.
+- `auth`, `storage`, and `functions` are shared across both apps but are logically namespaced.
+- **Invariant:** When writing database migrations, worker rules, or Edge Functions, you must explicitly target the correct schema and respect the namespace boundaries. Do not cross-pollinate data between the `public` and `cubefsrs` schemas.

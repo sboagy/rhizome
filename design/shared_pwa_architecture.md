@@ -31,7 +31,7 @@ Unless explicitly instructed by the user to "build toward the target architectur
 
 ## 2. Target Architecture (Where we are moving)
 
-1. **Human:** View https://github.com/sboagy/rhizome/blob/main/design/design/shared_pwa_architecture-multi-repo.drawio.svg, but note the Mermaid diagram is the authoritive version if the two diagrams get out of sync.
+1. **Human:** View https://github.com/sboagy/rhizome/blob/main/design/shared_pwa_architecture-multi-repo.drawio.svg, but note the Mermaid diagram is the authoritive version if the two diagrams get out of sync.
 2. **Agent:** The following Mermaid diagram represents our target architecture. This is the structural goal we are migrating toward. As we refactor, all new boundaries, dependencies, and infrastructure changes should align with this map.
 
 ```mermaid

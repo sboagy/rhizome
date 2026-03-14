@@ -14,7 +14,7 @@ Unless explicitly instructed by the user to "build toward the target architectur
 - is in the process of being extracted;
 - shared UI or auth logic has not been migrated out of the app repos yet, etc.
 
-## oosync
+### oosync
 
 - Is relativily stable per diagram.
 - References to this library will likely transition to using https://github.com/wclr/yalc .

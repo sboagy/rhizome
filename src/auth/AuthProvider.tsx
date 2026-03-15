@@ -151,6 +151,8 @@ export const AuthProvider: ParentComponent<AuthProviderProps> = (props) => {
 		convertAnonymousToRegistered,
 		resetPassword,
 		signOut,
+		// Consumer-provided sync state (localDb, forceSyncDown, forceSyncUp, lastSyncTimestamp, lastSyncMode)
+		...(props.syncState ?? {}),
 	};
 
 	return (

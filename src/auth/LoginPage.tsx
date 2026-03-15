@@ -11,7 +11,13 @@
  */
 
 import { A, useNavigate, useSearchParams } from "@solidjs/router";
-import { type Component, type JSX, createEffect, createSignal, Show } from "solid-js";
+import {
+	type Component,
+	createEffect,
+	createSignal,
+	type JSX,
+	Show,
+} from "solid-js";
 import { useAuth } from "./useAuth";
 
 export interface LoginPageProps {
@@ -49,8 +55,7 @@ const LoginPage: Component<LoginPageProps> = (props) => {
 	const navigate = useNavigate();
 
 	// True when an anonymous user clicks "Create Account" to preserve their data
-	const isConverting = () =>
-		searchParams.convert === "true" && isAnonymous();
+	const isConverting = () => searchParams.convert === "true" && isAnonymous();
 
 	const [isSignUp, setIsSignUp] = createSignal(false);
 	const [email, setEmail] = createSignal("");
@@ -81,9 +86,7 @@ const LoginPage: Component<LoginPageProps> = (props) => {
 			navigate("/");
 		} catch (err) {
 			setError(
-				err instanceof Error
-					? err.message
-					: "Failed to sign in anonymously",
+				err instanceof Error ? err.message : "Failed to sign in anonymously",
 			);
 		} finally {
 			setIsSubmitting(false);
@@ -118,9 +121,7 @@ const LoginPage: Component<LoginPageProps> = (props) => {
 			}
 			navigate("/");
 		} catch (err) {
-			setError(
-				err instanceof Error ? err.message : "Authentication failed",
-			);
+			setError(err instanceof Error ? err.message : "Authentication failed");
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -133,9 +134,7 @@ const LoginPage: Component<LoginPageProps> = (props) => {
 			await signInWithOAuth(provider);
 			// OAuth redirect happens automatically; if it returns, there was an error
 		} catch (err) {
-			setError(
-				err instanceof Error ? err.message : "OAuth sign-in failed",
-			);
+			setError(err instanceof Error ? err.message : "OAuth sign-in failed");
 			setIsSubmitting(false);
 		}
 	};
@@ -249,8 +248,8 @@ const LoginPage: Component<LoginPageProps> = (props) => {
 								Reset Password
 							</h2>
 							<p class="text-gray-600 dark:text-gray-400 mb-4">
-								Enter your email address and we'll send you a link to reset
-								your password.
+								Enter your email address and we'll send you a link to reset your
+								password.
 							</p>
 
 							<Show when={error()}>
@@ -385,8 +384,7 @@ const LoginPage: Component<LoginPageProps> = (props) => {
 								</>
 							) : (
 								<>
-									Don't have an account?{" "}
-									<span class="underline">Sign up</span>
+									Don't have an account? <span class="underline">Sign up</span>
 								</>
 							)}
 						</button>
@@ -399,9 +397,7 @@ const LoginPage: Component<LoginPageProps> = (props) => {
 						</div>
 						<div class="relative flex justify-center text-sm">
 							<span class="px-2 bg-white dark:bg-gray-800 text-gray-500">
-								{isSignUp()
-									? "Sign up with email"
-									: "Or sign in with password"}
+								{isSignUp() ? "Sign up with email" : "Or sign in with password"}
 							</span>
 						</div>
 					</div>

@@ -12,8 +12,16 @@ export default defineConfig({
 			fileName: (format) => `index.${format === "es" ? "mjs" : "js"}`,
 		},
 		rollupOptions: {
-			// Solid-js and supabase are peer deps — don't bundle them
-			external: ["solid-js", "@supabase/supabase-js", /^solid-js\//],
+			// Peer deps — must NOT be bundled or each consumer gets a separate
+			// instance, which breaks context-based APIs like the SolidJS router.
+			external: [
+				"solid-js",
+				/^solid-js\//,
+				"@solidjs/router",
+				/^@solidjs\//,
+				"@supabase/supabase-js",
+				/^@supabase\//,
+			],
 		},
 	},
 });

@@ -118,29 +118,38 @@ export const AuthProvider: ParentComponent<AuthProviderProps> = (props) => {
 		if (error) throw error;
 	};
 
+	const resetPassword = async (
+		email: string,
+		options?: { redirectTo?: string },
+	) => {
+		const redirectTo =
+			options?.redirectTo ??
+			`${window.location.origin}/auth/callback`;
+		const { error } = await props.supabaseClient.auth.resetPasswordForEmail(
+			email,
+			{ redirectTo },
+		);
+		if (error) throw error;
+	};
+
 	const signOut = async () => {
 		const { error } = await props.supabaseClient.auth.signOut();
 		if (error) throw error;
 	};
 
+	// Expose reactive state as SolidJS signal accessors so consumers can
+	// destructure and call as functions: const { user, loading } = useAuth(); user();
 	const value: AuthContextValue = {
-		get user() {
-			return user();
-		},
-		get session() {
-			return session();
-		},
-		get loading() {
-			return loading();
-		},
-		get isAnonymous() {
-			return isAnonymous();
-		},
+		user,
+		session,
+		loading,
+		isAnonymous,
 		signIn,
 		signUp,
 		signInWithOAuth,
 		signInAnonymously,
 		convertAnonymousToRegistered,
+		resetPassword,
 		signOut,
 	};
 

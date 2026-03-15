@@ -1,11 +1,15 @@
+import type { Accessor } from "solid-js";
 import type { Session, SupabaseClient, User } from "@supabase/supabase-js";
 
 export interface AuthState {
-  user: User | null;
-  session: Session | null;
-  loading: boolean;
-  /** True when the current session is a Supabase anonymous user. */
-  isAnonymous: boolean;
+  /** SolidJS signal accessor: call as `user()` to get the current User or null. */
+  user: Accessor<User | null>;
+  /** SolidJS signal accessor: call as `session()` to get the current Session or null. */
+  session: Accessor<Session | null>;
+  /** SolidJS signal accessor: `true` while the initial session is being resolved. */
+  loading: Accessor<boolean>;
+  /** Derived accessor: `true` when the current user is a Supabase anonymous user. */
+  isAnonymous: Accessor<boolean>;
 }
 
 export interface AuthContextValue extends AuthState {
@@ -18,6 +22,12 @@ export interface AuthContextValue extends AuthState {
    * Attaches the given email/password credentials to the current session.
    */
   convertAnonymousToRegistered(email: string, password: string): Promise<void>;
+  /**
+   * Sends a password-reset email.
+   * @param email - The user's email address.
+   * @param options.redirectTo - URL to redirect to after the user clicks the link (defaults to origin + /auth/callback).
+   */
+  resetPassword(email: string, options?: { redirectTo?: string }): Promise<void>;
   signOut(): Promise<void>;
 }
 

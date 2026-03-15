@@ -121,9 +121,9 @@ export default function AuthPanel(props: AuthPanelProps) {
       >
         <div class="space-y-2">
           <p class="text-sm truncate">
-            {auth.isAnonymous
+            {auth.isAnonymous()
               ? "Signed in anonymously"
-              : (auth.user?.email ?? auth.user?.id ?? "Signed in")}
+              : (auth.user()?.email ?? auth.user()?.id ?? "Signed in")}
           </p>
           <button
             type="button"

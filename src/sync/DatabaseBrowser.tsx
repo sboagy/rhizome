@@ -296,7 +296,7 @@ export const DatabaseBrowser: Component<DatabaseBrowserProps> = (props) => {
 															class={
 																i() % 2 === 0
 																	? "bg-white dark:bg-gray-900"
-																	: "bg-gray-50 dark:bg-gray-850"
+																	: "bg-gray-50 dark:bg-gray-800"
 															}
 														>
 															<For each={res().columns}>

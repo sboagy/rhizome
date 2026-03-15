@@ -11,6 +11,7 @@ export default defineConfig({
 			formats: ["es", "cjs"],
 			fileName: (format) => `index.${format === "es" ? "mjs" : "js"}`,
 		},
+		sourcemap: true,
 		rollupOptions: {
 			// Peer deps — must NOT be bundled or each consumer gets a separate
 			// instance, which breaks context-based APIs like the SolidJS router.

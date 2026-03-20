@@ -16,15 +16,33 @@
 #
 # USAGE
 # -----
-#   ./scripts/db-push-local.sh               # apply migrations + seeds
-#   ./scripts/db-push-local.sh --migrations-only
-#   ./scripts/db-push-local.sh --seed-only
-#   ./scripts/db-push-local.sh --help
+#   ./scripts/db-push-local.sh [mode] <app-dir> [app-dir2 ...]
+#
+#   mode (optional, must come first):
+#     --migrations-only   apply migrations only, skip seeds
+#     --seed-only         apply seeds only, skip migrations
+#     --help | -h         print this help and exit
+#
+#   <app-dir>: path to an app repo root. Repeat for multiple apps.
+#   Seeds in each app's supabase/seeds/ must be idempotent.
+#
+# EXAMPLES
+# --------
+#   # Single app, all steps:
+#   ./scripts/db-push-local.sh /path/to/cubefsrs
+#
+#   # Two apps, all steps:
+#   ./scripts/db-push-local.sh /path/to/cubefsrs /path/to/otherapp
+#
+#   # Migrations only:
+#   ./scripts/db-push-local.sh --migrations-only /path/to/cubefsrs
+#
+#   # Seeds only for two apps:
+#   ./scripts/db-push-local.sh --seed-only /path/to/cubefsrs /path/to/otherapp
 #
 # ENVIRONMENT OVERRIDES
 # ---------------------
 #   TUNETREES_DIR   path to tunetrees repo root  (default: <gittt_root>/tunetrees)
-#   CUBEFSRS_DIR    path to cubefsrs repo root   (default: <gittt_root>/oosync.worktrees/cf-e2e)
 #   DB_PORT         Postgres port                (default: 54322)
 #   DB_URL          postgres DSN                 (default: postgres://postgres:postgres@localhost:<DB_PORT>/postgres)
 # =============================================================================
@@ -38,21 +56,51 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 GITTT_ROOT="$(cd "${REPO_ROOT}/../.." && pwd)"
 
 TUNETREES_DIR="${TUNETREES_DIR:-${GITTT_ROOT}/tunetrees}"
-CUBEFSRS_DIR="${CUBEFSRS_DIR:-${GITTT_ROOT}/oosync.worktrees/cf-e2e}"
-DB_PORT="${DB_PORT:-54322}"
-DB_URL="${DB_URL:-postgres://postgres:postgres@localhost:${DB_PORT}/postgres}"
 
-MODE="${1:-all}"
+# ---------------------------------------------------------------------------
+# Parse optional mode flag (must be first argument if provided)
+# ---------------------------------------------------------------------------
+MODE="all"
+case "${1:-}" in
+    --migrations-only|--seed-only)
+        MODE="$1"
+        shift
+        ;;
+    --help|-h)
+        grep "^#" "$0" | head -60 | sed 's/^# \{0,1\}//'
+        exit 0
+        ;;
+    --*)
+        echo "Unknown flag: $1. Use --migrations-only, --seed-only, or --help." >&2
+        exit 1
+        ;;
+esac
 
-if [[ "${MODE}" == "--help" || "${MODE}" == "-h" ]]; then
-    grep "^#" "$0" | head -40 | sed 's/^# \{0,1\}//'
-    exit 0
-fi
+# ---------------------------------------------------------------------------
+# Collect app directories from remaining positional arguments (APP_DIRS)
+# ---------------------------------------------------------------------------
+declare -a APP_DIRS=("$@")
 
-if [[ "${MODE}" != "all" && "${MODE}" != "--migrations-only" && "${MODE}" != "--seed-only" ]]; then
-    echo "Unknown mode: ${MODE}. Use --migrations-only, --seed-only, or omit for all." >&2
+if [[ ${#APP_DIRS[@]} -eq 0 ]]; then
+    echo "" >&2
+    echo "ERROR: No app directories provided." >&2
+    echo "" >&2
+    echo "  Provide one or more app repo root paths as positional arguments." >&2
+    echo "" >&2
+    echo "  Single app:" >&2
+    echo "    ./scripts/db-push-local.sh /path/to/cubefsrs" >&2
+    echo "" >&2
+    echo "  Two apps:" >&2
+    echo "    ./scripts/db-push-local.sh /path/to/cubefsrs /path/to/otherapp" >&2
+    echo "" >&2
+    echo "  With mode flag:" >&2
+    echo "    ./scripts/db-push-local.sh --migrations-only /path/to/cubefsrs" >&2
+    echo "" >&2
     exit 1
 fi
+
+DB_PORT="${DB_PORT:-54322}"
+DB_URL="${DB_URL:-postgres://postgres:postgres@localhost:${DB_PORT}/postgres}"
 
 # Convenience wrapper -- avoids repeating connection flags everywhere.
 pg() { PGPASSWORD=postgres psql -h localhost -p "${DB_PORT}" -U postgres postgres --no-psqlrc "$@"; }
@@ -115,17 +163,20 @@ collect_migrations_from() {
 if [[ "${MODE}" != "--seed-only" ]]; then
     log "=== Applying migrations ==="
 
-    # Collect migrations from all apps, sorted by version (timestamp prefix).
-    # This ensures shared auth/extensions from tunetrees land before cubefsrs
-    # schema objects that reference auth.users.
+    # Collect migrations from tunetrees and all APP_DIRS, sorted by version
+    # (timestamp prefix). Sorting ensures shared auth / extension migrations
+    # from tunetrees land before app schemas that reference auth.users.
     declare -a all_migrations
     mapfile -t all_migrations < <(
         collect_migrations_from "${TUNETREES_DIR}/supabase/migrations"
-        collect_migrations_from "${CUBEFSRS_DIR}/supabase/migrations"
+        for app_dir in "${APP_DIRS[@]}"; do
+            collect_migrations_from "${app_dir}/supabase/migrations"
+        done
     )
 
     if [[ ${#all_migrations[@]} -eq 0 ]]; then
-        log_warn "No migration files found. Check TUNETREES_DIR (${TUNETREES_DIR}) and CUBEFSRS_DIR (${CUBEFSRS_DIR})."
+        app_list="${APP_DIRS[*]}"
+        log_warn "No migration files found. Check TUNETREES_DIR (${TUNETREES_DIR}) and APP_DIRS (${app_list})."
     else
         # Sort by version field (first column, numeric timestamp prefix)
         while IFS=' ' read -r version name sql_file; do
@@ -163,17 +214,29 @@ if [[ "${MODE}" != "--migrations-only" ]]; then
     fi
 
     # ------------------------------------------------------------------
-    # cubefsrs global catalog: algorithm categories, subsets, and cases.
-    # Uses ON CONFLICT DO NOTHING throughout -- safe to re-run at any time.
+    # App seeds (from APP_DIRS): applied in order for each app directory.
+    # All seed files in each app's supabase/seeds/ are expected to be
+    # idempotent (e.g. using ON CONFLICT DO NOTHING).
     # ------------------------------------------------------------------
-    CF_SEED="${CUBEFSRS_DIR}/supabase/seeds/01_global_catalog.sql"
-    if [[ ! -f "${CF_SEED}" ]]; then
-        log_warn "cubefsrs catalog seed not found: ${CF_SEED}"
-    else
-        log "Applying cubefsrs global catalog seed..."
-        pg -f "${CF_SEED}" -q
-        log_ok "cubefsrs catalog seed applied"
-    fi
+    for app_dir in "${APP_DIRS[@]}"; do
+        seeds_dir="${app_dir}/supabase/seeds"
+        if [[ ! -d "${seeds_dir}" ]]; then
+            log_warn "No seeds dir found for app: ${app_dir}"
+            continue
+        fi
+        shopt -s nullglob
+        seed_files=("${seeds_dir}"/*.sql)
+        shopt -u nullglob
+        if [[ ${#seed_files[@]} -eq 0 ]]; then
+            log_warn "No seed files in: ${seeds_dir}"
+            continue
+        fi
+        for seed_file in "${seed_files[@]}"; do
+            log "Applying seed: ${seed_file##*/}  (${app_dir##*/})"
+            pg -f "${seed_file}" -q
+            log_ok "${seed_file##*/}"
+        done
+    done
 
     log "Seeds complete."
 fi

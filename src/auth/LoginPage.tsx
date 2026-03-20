@@ -421,6 +421,7 @@ const LoginPage: Component<LoginPageProps> = (props) => {
 						</label>
 						<input
 							id="login-email"
+							data-testid="login-email-input"
 							type="email"
 							value={email()}
 							onInput={(e) => setEmail(e.currentTarget.value)}
@@ -441,7 +442,9 @@ const LoginPage: Component<LoginPageProps> = (props) => {
 						</label>
 						<div class="relative">
 							<input
-								id="login-password"							data-testid="login-password-input"								type={showPassword() ? "text" : "password"}
+								id="login-password"
+								data-testid="login-password-input"
+								type={showPassword() ? "text" : "password"}
 								value={password()}
 								onInput={(e) => setPassword(e.currentTarget.value)}
 								autocomplete={isSignUp() ? "new-password" : "current-password"}

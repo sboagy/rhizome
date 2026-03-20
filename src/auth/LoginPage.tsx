@@ -341,8 +341,7 @@ const LoginPage: Component<LoginPageProps> = (props) => {
 						</div>
 						<div class="mb-5">
 							<button
-								type="button"
-								onClick={handleAnonymousSignIn}
+								type="button"									data-testid="login-anonymous-button"								onClick={handleAnonymousSignIn}
 								disabled={isSubmitting() || loading()}
 								class="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
 							>
@@ -442,8 +441,7 @@ const LoginPage: Component<LoginPageProps> = (props) => {
 						</label>
 						<div class="relative">
 							<input
-								id="login-password"
-								type={showPassword() ? "text" : "password"}
+								id="login-password"							data-testid="login-password-input"								type={showPassword() ? "text" : "password"}
 								value={password()}
 								onInput={(e) => setPassword(e.currentTarget.value)}
 								autocomplete={isSignUp() ? "new-password" : "current-password"}
@@ -525,6 +523,7 @@ const LoginPage: Component<LoginPageProps> = (props) => {
 					{/* Submit */}
 					<button
 						type="submit"
+						data-testid="login-submit-button"
 						disabled={isSubmitting() || loading()}
 						class="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
 					>

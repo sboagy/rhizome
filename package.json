@@ -1,36 +1,36 @@
 {
-    "name": "@rhizome/core",
-    "version": "0.1.0",
-    "description": "Shared logic and UI components for the TuneTrees ecosystem",
-    "main": "./dist/index.js",
-    "module": "./dist/index.mjs",
-    "types": "./dist/index.d.ts",
-    "files": [
-        "dist"
-    ],
-    "scripts": {
-        "build": "vite build",
-        "dev": "vite build --watch",
-        "typecheck": "tsc --noEmit -p tsconfig.json",
-        "lint": "biome lint .",
-        "format": "biome format .",
-        "format:write": "biome format --write .",
-        "yalc:push": "npm run build && yalc publish --push"
-    },
-    "devDependencies": {
-        "@solidjs/router": "^0.15.4",
-        "solid-js": "^1.8.0",
-        "typescript": "^5.0.0",
-        "vite": "^8.0.0",
-        "vite-plugin-dts": "^4.5.4",
-        "vite-plugin-solid": "^2.11.11",
-        "yalc": "^1.0.0-pre.53"
-    },
-    "peerDependencies": {
-        "@solidjs/router": "^0.15.0",
-        "solid-js": "^1.8.0"
-    },
-    "dependencies": {
-        "@supabase/supabase-js": "^2.99.1"
-    }
+	"name": "@rhizome/core",
+	"version": "0.1.0",
+	"description": "Shared logic and UI components for the TuneTrees ecosystem",
+	"main": "./dist/index.js",
+	"module": "./dist/index.mjs",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "vite build",
+		"dev": "vite build --watch",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"lint": "biome lint .",
+		"format": "biome format .",
+		"format:write": "biome format --write .",
+		"yalc:push": "npm run build && yalc publish --push"
+	},
+	"devDependencies": {
+		"@solidjs/router": "^0.15.4",
+		"solid-js": "^1.8.0",
+		"typescript": "^5.0.0",
+		"vite": "^8.0.0",
+		"vite-plugin-dts": "^4.5.4",
+		"vite-plugin-solid": "^2.11.11",
+		"yalc": "^1.0.0-pre.53"
+	},
+	"peerDependencies": {
+		"@solidjs/router": "^0.15.0",
+		"solid-js": "^1.8.0"
+	},
+	"dependencies": {
+		"@supabase/supabase-js": "^2.99.1"
+	}
 }

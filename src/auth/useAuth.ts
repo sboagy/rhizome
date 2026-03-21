@@ -7,9 +7,9 @@ import type { AuthContextValue } from "./types";
  * Must be called inside a component tree wrapped by `<AuthProvider>`.
  */
 export function useAuth(): AuthContextValue {
-  const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error("useAuth() must be called inside <AuthProvider>");
-  }
-  return ctx;
+	const ctx = useContext(AuthContext);
+	if (!ctx) {
+		throw new Error("useAuth() must be called inside <AuthProvider>");
+	}
+	return ctx;
 }

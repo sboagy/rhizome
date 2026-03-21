@@ -123,8 +123,7 @@ export const AuthProvider: ParentComponent<AuthProviderProps> = (props) => {
 		options?: { redirectTo?: string },
 	) => {
 		const redirectTo =
-			options?.redirectTo ??
-			`${window.location.origin}/auth/callback`;
+			options?.redirectTo ?? `${window.location.origin}/auth/callback`;
 		const { error } = await props.supabaseClient.auth.resetPasswordForEmail(
 			email,
 			{ redirectTo },

@@ -180,7 +180,9 @@ export const DbStatusDropdown: Component<DbStatusDropdownProps> = (props) => {
 					<path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
 					<path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3" />
 				</svg>
-				<span data-testid="db-status-text" class="flex-1 text-left">{statusText()}</span>
+				<span data-testid="db-status-text" class="flex-1 text-left">
+					{statusText()}
+				</span>
 				{/* Status badge */}
 				<Show
 					when={isOnline() && pendingCount() === 0}
@@ -204,9 +206,7 @@ export const DbStatusDropdown: Component<DbStatusDropdownProps> = (props) => {
 								<div class="flex items-start gap-2">
 									<Show
 										when={localDb?.()}
-										fallback={
-											<span class="text-yellow-500 text-sm">⏳</span>
-										}
+										fallback={<span class="text-yellow-500 text-sm">⏳</span>}
 									>
 										<span class="text-green-500 text-sm">✓</span>
 									</Show>
@@ -215,9 +215,7 @@ export const DbStatusDropdown: Component<DbStatusDropdownProps> = (props) => {
 											Local Database
 										</div>
 										<div class="text-xs text-gray-500 dark:text-gray-400">
-											{localDb?.()
-												? "Initialized and ready"
-												: "Initializing…"}
+											{localDb?.() ? "Initialized and ready" : "Initializing…"}
 										</div>
 									</div>
 								</div>

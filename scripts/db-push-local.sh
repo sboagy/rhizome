@@ -10,8 +10,8 @@
 # The Supabase CLI tracks applied migrations in supabase_migrations.schema_migrations.
 # That table is shared across the single Postgres instance, but each app repo's
 # CLI only knows its own migration directory. Running `supabase db push --local`
-# from tunetrees fails if it finds a cubefsrs migration version in the DB, and
-# vice versa. This script bypasses that problem by applying all app migrations
+# from one app fails if it finds another app's migration version in the DB.
+# This script bypasses that problem by applying all requested app migrations
 # directly and managing the tracking table itself.
 #
 # USAGE
@@ -42,7 +42,6 @@
 #
 # ENVIRONMENT OVERRIDES
 # ---------------------
-#   TUNETREES_DIR   path to tunetrees repo root  (default: <gittt_root>/tunetrees)
 #   DB_PORT         Postgres port                (default: 54322)
 #   DB_URL          postgres DSN                 (default: postgres://postgres:postgres@localhost:<DB_PORT>/postgres)
 # =============================================================================
@@ -51,11 +50,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-# This script lives in a worktree under <gittt_root>/rhizome.worktrees/<branch>/scripts,
-# so GITTT_ROOT is three levels up: scripts -> rhizome-cubefsrs-e2e -> rhizome.worktrees -> gittt
-GITTT_ROOT="$(cd "${REPO_ROOT}/../.." && pwd)"
-
-TUNETREES_DIR="${TUNETREES_DIR:-${GITTT_ROOT}/tunetrees}"
 
 # ---------------------------------------------------------------------------
 # Parse optional mode flag (must be first argument if provided)
@@ -161,6 +155,30 @@ collect_migrations_from() {
     done
 }
 
+# apply_seed_file <seed_file> <app_name>
+# Applies a seed file from one of the requested APP_DIRS.
+# Non-idempotent baseline dumps (`baseline_local_*.sql`) are skipped once
+# auth.users already has rows; all other seed files are applied as-is.
+apply_seed_file() {
+    local seed_file="$1"
+    local app_name="$2"
+    local seed_name
+    seed_name="$(basename "${seed_file}")"
+
+    if [[ "${seed_name}" == baseline_local_*.sql ]]; then
+        local user_count
+        user_count=$(pg -qAt -c "SELECT COUNT(*) FROM auth.users")
+        if [[ "${user_count}" -gt 0 ]]; then
+            log_skip "${seed_name} (${app_name}; auth.users already has ${user_count} rows)"
+            return 0
+        fi
+    fi
+
+    log "Applying seed: ${seed_name}  (${app_name})"
+    pg -f "${seed_file}" -q
+    log_ok "${seed_name}"
+}
+
 # =============================================================================
 # MIGRATIONS
 # =============================================================================
@@ -168,20 +186,18 @@ collect_migrations_from() {
 if [[ "${MODE}" != "--seed-only" ]]; then
     log "=== Applying migrations ==="
 
-    # Collect migrations from tunetrees and all APP_DIRS, sorted by version
-    # (timestamp prefix). Sorting ensures shared auth / extension migrations
-    # from tunetrees land before app schemas that reference auth.users.
+    # Collect migrations from the requested APP_DIRS, sorted by version
+    # (timestamp prefix) so cross-app dependencies land in timestamp order.
     declare -a all_migrations
     mapfile -t all_migrations < <(
-        collect_migrations_from "${TUNETREES_DIR}/supabase/migrations"
         for app_dir in "${APP_DIRS[@]}"; do
             collect_migrations_from "${app_dir}/supabase/migrations"
         done
     )
 
     if [[ ${#all_migrations[@]} -eq 0 ]]; then
-        app_list="${APP_DIRS[*]}"
-        log_warn "No migration files found. Check TUNETREES_DIR (${TUNETREES_DIR}) and APP_DIRS (${app_list})."
+        local_app_list="${APP_DIRS[*]}"
+        log_warn "No migration files found in APP_DIRS (${local_app_list})."
     else
         # Sort by version field (first column, numeric timestamp prefix)
         while IFS=' ' read -r version name sql_file; do
@@ -199,30 +215,9 @@ fi
 if [[ "${MODE}" != "--migrations-only" ]]; then
     log "=== Applying seeds ==="
 
-    # ------------------------------------------------------------------
-    # tunetrees baseline: a full pg_dump including auth.users, identities,
-    # and all public schema data. NOT idempotent -- skip if auth.users
-    # already has rows to avoid duplicate key errors on re-runs.
-    # ------------------------------------------------------------------
-    TT_SEED="${TUNETREES_DIR}/supabase/seeds/baseline_local_20260217.sql"
-    if [[ ! -f "${TT_SEED}" ]]; then
-        log_warn "tunetrees seed not found: ${TT_SEED}"
-    else
-        user_count=$(pg -qAt -c "SELECT COUNT(*) FROM auth.users")
-        if [[ "${user_count}" -gt 0 ]]; then
-            log_skip "tunetrees baseline seed (auth.users already has ${user_count} rows)"
-        else
-            log "Applying tunetrees baseline seed (auth.users + public schema data)..."
-            pg -f "${TT_SEED}" -q
-            log_ok "tunetrees baseline seed applied"
-        fi
-    fi
-
-    # ------------------------------------------------------------------
-    # App seeds (from APP_DIRS): applied in order for each app directory.
-    # All seed files in each app's supabase/seeds/ are expected to be
-    # idempotent (e.g. using ON CONFLICT DO NOTHING).
-    # ------------------------------------------------------------------
+    # Apply seed files from APP_DIRS in the order the app directories were
+    # provided. Most seeds should be idempotent; baseline_local_*.sql dumps
+    # are handled generically in apply_seed_file().
     for app_dir in "${APP_DIRS[@]}"; do
         seeds_dir="${app_dir}/supabase/seeds"
         if [[ ! -d "${seeds_dir}" ]]; then
@@ -237,9 +232,7 @@ if [[ "${MODE}" != "--migrations-only" ]]; then
             continue
         fi
         for seed_file in "${seed_files[@]}"; do
-            log "Applying seed: ${seed_file##*/}  (${app_dir##*/})"
-            pg -f "${seed_file}" -q
-            log_ok "${seed_file##*/}"
+            apply_seed_file "${seed_file}" "${app_dir##*/}"
         done
     done
 

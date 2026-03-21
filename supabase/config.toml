@@ -5,8 +5,14 @@
 # serving all apps in the workspace (tunetrees, cubefsrs, etc.).
 #
 # Run `supabase start` from the rhizome directory to start the shared instance.
-# Each app repo (tunetrees, cubefsrs) then runs `supabase db push` from its own
-# directory to apply its schema-specific migrations.
+#
+# For LOCAL development: Each app repo uses the shared orchestration script:
+#   cd rhizome && ./scripts/db-push-local.sh <app-name>
+# This prevents migrations from conflicting when multiple apps push to the same
+# local instance simultaneously.
+#
+# For REMOTE/production: Each app repo runs `supabase db push` independently
+# against its own remote Supabase project (not the shared rhizome instance).
 #
 # Schema definitions (migrations, seeds) live exclusively in each app's repo.
 # rhizome owns no app-specific schemas and runs no app-specific migrations.

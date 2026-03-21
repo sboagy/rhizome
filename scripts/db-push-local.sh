@@ -103,7 +103,8 @@ DB_PORT="${DB_PORT:-54322}"
 DB_URL="${DB_URL:-postgres://postgres:postgres@localhost:${DB_PORT}/postgres}"
 
 # Convenience wrapper -- avoids repeating connection flags everywhere.
-pg() { PGPASSWORD=postgres psql -h localhost -p "${DB_PORT}" -U postgres postgres --no-psqlrc "$@"; }
+# Uses DB_URL so callers can override the connection string via environment.
+pg() { psql -d "${DB_URL}" --no-psqlrc "$@"; }
 
 log()      { printf '>> %s\n' "$*"; }
 log_ok()   { printf '   OK: %s\n' "$*"; }

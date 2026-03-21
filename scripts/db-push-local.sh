@@ -123,7 +123,7 @@ apply_migration() {
     local sql_file="$3"
 
     local count
-    count=$(pg -qAt -c "SELECT COUNT(*) FROM supabase_migrations.schema_migrations WHERE version = '${version}'")
+    count=$(pg -v version="${version}" -qAt -c "SELECT COUNT(*) FROM supabase_migrations.schema_migrations WHERE version = :'version'")
 
     if [[ "${count}" -gt 0 ]]; then
         log_skip "${version} ${name}"
@@ -135,7 +135,11 @@ apply_migration() {
 
     # Record in the Supabase CLI migration tracking table.
     # columns: version TEXT PK, statements TEXT[] (nullable), name TEXT (nullable)
-    pg -qAt -c "INSERT INTO supabase_migrations.schema_migrations(version, name) VALUES ('${version}', '${name}') ON CONFLICT (version) DO NOTHING"
+    pg \
+        -v version="${version}" \
+        -v migration_name="${name}" \
+        -qAt \
+        -c "INSERT INTO supabase_migrations.schema_migrations(version, name) VALUES (:'version', :'migration_name') ON CONFLICT (version) DO NOTHING"
     log_ok "${version} ${name}"
 }
 

@@ -156,6 +156,7 @@ export const DbStatusDropdown: Component<DbStatusDropdownProps> = (props) => {
 			{/* Trigger button */}
 			<button
 				type="button"
+				data-testid="db-status-trigger"
 				onClick={() => setShowMenu(!showMenu())}
 				class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
 				aria-label="Database and sync status"
@@ -179,7 +180,7 @@ export const DbStatusDropdown: Component<DbStatusDropdownProps> = (props) => {
 					<path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
 					<path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3" />
 				</svg>
-				<span class="flex-1 text-left">{statusText()}</span>
+				<span data-testid="db-status-text" class="flex-1 text-left">{statusText()}</span>
 				{/* Status badge */}
 				<Show
 					when={isOnline() && pendingCount() === 0}

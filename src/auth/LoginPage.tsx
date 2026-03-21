@@ -342,6 +342,7 @@ const LoginPage: Component<LoginPageProps> = (props) => {
 						<div class="mb-5">
 							<button
 								type="button"
+								data-testid="login-anonymous-button"
 								onClick={handleAnonymousSignIn}
 								disabled={isSubmitting() || loading()}
 								class="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
@@ -422,6 +423,7 @@ const LoginPage: Component<LoginPageProps> = (props) => {
 						</label>
 						<input
 							id="login-email"
+							data-testid="login-email-input"
 							type="email"
 							value={email()}
 							onInput={(e) => setEmail(e.currentTarget.value)}
@@ -443,6 +445,7 @@ const LoginPage: Component<LoginPageProps> = (props) => {
 						<div class="relative">
 							<input
 								id="login-password"
+								data-testid="login-password-input"
 								type={showPassword() ? "text" : "password"}
 								value={password()}
 								onInput={(e) => setPassword(e.currentTarget.value)}
@@ -525,6 +528,7 @@ const LoginPage: Component<LoginPageProps> = (props) => {
 					{/* Submit */}
 					<button
 						type="submit"
+						data-testid="login-submit-button"
 						disabled={isSubmitting() || loading()}
 						class="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
 					>

@@ -11,6 +11,10 @@
     "scripts": {
         "build": "vite build",
         "dev": "vite build --watch",
+        "typecheck": "tsc --noEmit -p tsconfig.json",
+        "lint": "biome lint .",
+        "format": "biome format .",
+        "format:write": "biome format --write .",
         "yalc:push": "npm run build && yalc publish --push"
     },
     "devDependencies": {

@@ -157,9 +157,7 @@ export const DatabaseBrowser: Component<DatabaseBrowserProps> = (props) => {
 						</h2>
 						<Show
 							when={!tables.loading}
-							fallback={
-								<p class="text-sm text-gray-400">Loading…</p>
-							}
+							fallback={<p class="text-sm text-gray-400">Loading…</p>}
 						>
 							<div class="space-y-0.5">
 								<For each={tables()}>

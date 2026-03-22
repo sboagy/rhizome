@@ -15,7 +15,8 @@
 		"lint": "biome lint .",
 		"format": "biome format .",
 		"format:write": "biome format --write .",
-		"yalc:push": "npm run build && yalc publish --push"
+		"yalc:push": "npm run build && yalc publish --push",
+		"prepare": "npm run build"
 	},
 	"devDependencies": {
 		"@solidjs/router": "^0.15.4",

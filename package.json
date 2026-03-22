@@ -16,7 +16,7 @@
 		"format": "biome format .",
 		"format:write": "biome format --write .",
 		"yalc:push": "npm run build && yalc publish --push",
-		"prepare": "npm run build"
+		"prepare": "[ -f node_modules/.bin/vite ] && npm run build || echo '@rhizome/core: dist is pre-built; skipping vite build (no devDeps)'"
 	},
 	"devDependencies": {
 		"@solidjs/router": "^0.15.4",

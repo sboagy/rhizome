@@ -80,7 +80,10 @@ out
 
 # Nuxt.js build / generate output
 .nuxt
-dist
+# dist is intentionally committed so consumers can install @rhizome/core as a
+# git dependency without needing to run a build step (vite is a devDep and is
+# not available during npm's prepare hook for git deps).
+# dist
 
 # Gatsby files
 .cache/

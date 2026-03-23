@@ -14,8 +14,9 @@
 # For REMOTE/production: Each app repo runs `supabase db push` independently
 # against its own remote Supabase project (not the shared rhizome instance).
 #
-# Schema definitions (migrations, seeds) live exclusively in each app's repo.
-# rhizome owns no app-specific schemas and runs no app-specific migrations.
+# App-owned schemas, migrations, and app data seeds live in each app's repo.
+# Rhizome owns the shared local Supabase config plus shared auth/bootstrap
+# helpers for the cross-app identity layer.
 # =============================================================================
 
 # For detailed configuration reference documentation, visit:
@@ -61,7 +62,9 @@ enabled = true
 schema_paths = []
 
 [db.seed]
-# No shared seeds. Each app manages its own seed data from its own repo.
+# Automatic Supabase CLI seeds stay disabled here. Shared auth bootstrap is
+# applied explicitly via scripts/seed-shared-auth-users-local.sh so app repos
+# keep owning only their app-scoped seeds.
 enabled = false
 
 [db.network_restrictions]

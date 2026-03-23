@@ -117,7 +117,14 @@ apply_migration() {
     local sql_file="$3"
 
     local count
-    count=$(pg -v version="${version}" -qAt -c "SELECT COUNT(*) FROM supabase_migrations.schema_migrations WHERE version = :'version'")
+    # Use shell interpolation rather than psql :'var' substitution; the :'var'
+    # quoted form requires a minimum psql version and behaves inconsistently
+    # across CI environments. `version` is always a 14-digit timestamp (safe to
+    # embed directly) and `name` is derived from the migration filename (no
+    # special chars). Single-quote any accidental apostrophes in name as a
+    # precaution.
+    local safe_name="${name//\'/\'\'}"
+    count=$(pg -qAt -c "SELECT COUNT(*) FROM supabase_migrations.schema_migrations WHERE version = '${version}'")
 
     if [[ "${count}" -gt 0 ]]; then
         log_skip "${version} ${name}"
@@ -129,11 +136,8 @@ apply_migration() {
 
     # Record in the Supabase CLI migration tracking table.
     # columns: version TEXT PK, statements TEXT[] (nullable), name TEXT (nullable)
-    pg \
-        -v version="${version}" \
-        -v migration_name="${name}" \
-        -qAt \
-        -c "INSERT INTO supabase_migrations.schema_migrations(version, name) VALUES (:'version', :'migration_name') ON CONFLICT (version) DO NOTHING"
+    pg -qAt \
+        -c "INSERT INTO supabase_migrations.schema_migrations(version, name) VALUES ('${version}', '${safe_name}') ON CONFLICT (version) DO NOTHING"
     log_ok "${version} ${name}"
 }
 

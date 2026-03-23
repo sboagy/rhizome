@@ -144,3 +144,5 @@ vite.config.ts.timestamp-*
 .$*.bkp
 _notes
 _plans
+.yalc/
+yalc.lock

@@ -51,9 +51,13 @@ default_pool_size = 20
 max_client_conn = 100
 
 [db.migrations]
-# rhizome owns no app-specific migrations. Each app pushes its own schema
-# migrations to this shared instance via `supabase db push` from the app repo.
-enabled = false
+# rhizome owns one bootstrap migration: it creates empty schema stubs for every
+# app schema listed in [api] schemas above (e.g. `cubefsrs`). This ensures those
+# schemas exist before PostgREST starts its health check — PostgREST fails the
+# check if any configured schema is absent. The actual DDL (tables, triggers,
+# RLS, seeds) for each app schema still lives exclusively in each app's repo and
+# is applied after `supabase start` via `scripts/db-push-local.sh`.
+enabled = true
 schema_paths = []
 
 [db.seed]

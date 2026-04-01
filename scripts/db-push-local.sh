@@ -16,11 +16,14 @@
 #
 # USAGE
 # -----
-#   ./scripts/db-push-local.sh [mode] <app-dir> [app-dir2 ...]
+#   ./scripts/db-push-local.sh [mode] [--public-cleared] <app-dir> [app-dir2 ...]
 #
 #   mode (optional, must come first):
 #     --migrations-only   apply migrations only, skip seeds
 #     --seed-only         apply seeds only, skip migrations
+#     --public-cleared    caller guarantees the app-owned public schema has
+#                         already been cleared, so dump-style baseline seeds
+#                         may be replayed safely
 #     --help | -h         print this help and exit
 #
 #   <app-dir>: path to an app repo root. Repeat for multiple apps.
@@ -37,6 +40,9 @@
 #   # Migrations only:
 #   ./scripts/db-push-local.sh --migrations-only /path/to/cubefsrs
 #
+#   # Replay a dump-style baseline after caller cleared public:
+#   ./scripts/db-push-local.sh --public-cleared /path/to/tunetrees
+#
 #   # Seeds only for two apps:
 #   ./scripts/db-push-local.sh --seed-only /path/to/cubefsrs /path/to/otherapp
 #
@@ -52,23 +58,38 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # ---------------------------------------------------------------------------
-# Parse optional mode flag (must be first argument if provided)
+# Parse optional flags before app-dir arguments.
 # ---------------------------------------------------------------------------
 MODE="all"
-case "${1:-}" in
-    --migrations-only|--seed-only)
-        MODE="$1"
-        shift
-        ;;
-    --help|-h)
-        grep "^#" "$0" | head -60 | sed 's/^# \{0,1\}//'
-        exit 0
-        ;;
-    --*)
-        echo "Unknown flag: $1. Use --migrations-only, --seed-only, or --help." >&2
-        exit 1
-        ;;
-esac
+ASSUME_CLEARED_PUBLIC=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --migrations-only|--seed-only)
+            if [[ "${MODE}" != "all" ]]; then
+                echo "Choose only one mode flag: --migrations-only or --seed-only." >&2
+                exit 1
+            fi
+            MODE="$1"
+            shift
+            ;;
+        --public-cleared)
+            ASSUME_CLEARED_PUBLIC=true
+            shift
+            ;;
+        --help|-h)
+            grep "^#" "$0" | head -60 | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        --*)
+            echo "Unknown flag: $1. Use --migrations-only, --seed-only, --public-cleared, or --help." >&2
+            exit 1
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
 
 # ---------------------------------------------------------------------------
 # Collect app directories from remaining positional arguments (APP_DIRS)
@@ -104,6 +125,14 @@ log()      { printf '>> %s\n' "$*"; }
 log_ok()   { printf '   OK: %s\n' "$*"; }
 log_skip() { printf '   skip: %s (already applied)\n' "$*"; }
 log_warn() { printf '   WARN: %s\n' "$*" >&2; }
+
+log_runtime_context() {
+    log "db-push-local starting"
+    log "Mode: ${MODE}"
+    log "Assume cleared public: ${ASSUME_CLEARED_PUBLIC}"
+    log "DB URL: ${DB_URL}"
+    log "App directories (${#APP_DIRS[@]}): ${APP_DIRS[*]}"
+}
 
 # =============================================================================
 # Migration application
@@ -145,6 +174,7 @@ apply_migration() {
 # Prints lines: "<version> <name> <absolute_path>" for each *.sql in <dir>.
 collect_migrations_from() {
     local dir="$1"
+    printf '>> %s\n' "Scanning migrations in ${dir}" >&2
     if [[ ! -d "${dir}" ]]; then
         log_warn "Migrations dir not found: ${dir}"
         return 0
@@ -161,27 +191,30 @@ collect_migrations_from() {
 
 # apply_seed_file <seed_file> <app_name>
 # Applies a seed file from one of the requested APP_DIRS.
-# Non-idempotent baseline dumps (`baseline_local_*.sql`) are skipped once
-# auth.users already has rows; all other seed files are applied as-is.
+# Dump-style baseline seeds (`baseline_local_*.sql`) only run when the caller
+# explicitly says the app-owned public schema has already been cleared.
 apply_seed_file() {
     local seed_file="$1"
     local app_name="$2"
     local seed_name
     seed_name="$(basename "${seed_file}")"
 
+    log "Preparing seed ${seed_name} for ${app_name}"
+
     if [[ "${seed_name}" == baseline_local_*.sql ]]; then
-        local user_count
-        user_count=$(pg -qAt -c "SELECT COUNT(*) FROM auth.users")
-        if [[ "${user_count}" -gt 0 ]]; then
-            log_skip "${seed_name} (${app_name}; auth.users already has ${user_count} rows)"
-            return 0
+        if [[ "${ASSUME_CLEARED_PUBLIC}" != "true" ]]; then
+            echo "Refusing to apply ${seed_name} for ${app_name}: dump-style baseline seeds require --public-cleared." >&2
+            echo "The caller must decide when app-owned public state has been cleared; db-push-local.sh does not guess." >&2
+            exit 1
         fi
     fi
 
     log "Applying seed: ${seed_name}  (${app_name})"
-    pg -f "${seed_file}" -q
+    pg -v ON_ERROR_STOP=1 -f "${seed_file}" -q
     log_ok "${seed_name}"
 }
+
+log_runtime_context
 
 # =============================================================================
 # MIGRATIONS
@@ -198,6 +231,8 @@ if [[ "${MODE}" != "--seed-only" ]]; then
             collect_migrations_from "${app_dir}/supabase/migrations"
         done
     )
+
+    log "Collected ${#all_migrations[@]} migration file(s)"
 
     if [[ ${#all_migrations[@]} -eq 0 ]]; then
         local_app_list="${APP_DIRS[*]}"
@@ -224,6 +259,7 @@ if [[ "${MODE}" != "--migrations-only" ]]; then
     # are handled generically in apply_seed_file().
     for app_dir in "${APP_DIRS[@]}"; do
         seeds_dir="${app_dir}/supabase/seeds"
+        log "Scanning seeds for ${app_dir}"
         if [[ ! -d "${seeds_dir}" ]]; then
             log_warn "No seeds dir found for app: ${app_dir}"
             continue
@@ -235,6 +271,7 @@ if [[ "${MODE}" != "--migrations-only" ]]; then
             log_warn "No seed files in: ${seeds_dir}"
             continue
         fi
+        log "Found ${#seed_files[@]} seed file(s) in ${seeds_dir}"
         for seed_file in "${seed_files[@]}"; do
             apply_seed_file "${seed_file}" "${app_dir##*/}"
         done

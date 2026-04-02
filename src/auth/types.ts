@@ -79,4 +79,13 @@ export interface AuthProviderProps {
 	 * so shared components (DbStatusDropdown, DatabaseBrowser) can use them via useAuth().
 	 */
 	syncState?: SyncState;
+	/**
+	 * Optional override for the anonymous sign-in flow.
+	 * Apps that need custom anonymous session restoration (e.g., TuneTrees) use this
+	 * to intercept the sign-in and restore a previously saved anonymous session before
+	 * falling back to creating a new one.
+	 *
+	 * If provided, this replaces the default `supabase.auth.signInAnonymously()` call.
+	 */
+	overrideSignInAnonymously?: () => Promise<void>;
 }

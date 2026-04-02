@@ -103,6 +103,12 @@ export const AuthProvider: ParentComponent<AuthProviderProps> = (props) => {
 	};
 
 	const signInAnonymously = async () => {
+		// Allow consumers to override the default anonymous sign-in flow
+		// (e.g., to restore a previously saved anonymous session before creating a new one)
+		if (props.overrideSignInAnonymously) {
+			await props.overrideSignInAnonymously();
+			return;
+		}
 		const { error } = await props.supabaseClient.auth.signInAnonymously();
 		if (error) throw error;
 	};

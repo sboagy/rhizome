@@ -1,0 +1,1 @@
+{"version":3,"file":"AuthPanel.d.ts","sourceRoot":"","sources":["../../src/auth/AuthPanel.tsx"],"names":[],"mappings":"AAGA,UAAU,cAAc;IACvB,sDAAsD;IACtD,KAAK,CAAC,EAAE,MAAM,CAAC;IACf,0DAA0D;IAC1D,cAAc,CAAC,EAAE,KAAK,CAAC,QAAQ,GAAG,QAAQ,CAAC,CAAC;CAC5C;AAED;;;;;;;GAOG;AACH,MAAM,CAAC,OAAO,UAAU,SAAS,CAAC,KAAK,EAAE,cAAc,kCA6HtD"}

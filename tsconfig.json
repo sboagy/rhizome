@@ -10,6 +10,7 @@
 		"declarationMap": true,
 		"skipLibCheck": true,
 		"esModuleInterop": true,
+		"rootDir": "src",
 		"outDir": "dist"
 	},
 	"include": ["src"]

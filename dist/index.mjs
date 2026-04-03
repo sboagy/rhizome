@@ -42,6 +42,10 @@ var S = u(), C = (e) => {
 			if (n) throw n;
 		},
 		signInAnonymously: async () => {
+			if (e.overrideSignInAnonymously) {
+				await e.overrideSignInAnonymously();
+				return;
+			}
 			let { error: t } = await e.supabaseClient.auth.signInAnonymously();
 			if (t) throw t;
 		},

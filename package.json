@@ -6,11 +6,16 @@
 	"module": "./dist/index.mjs",
 	"types": "./dist/index.d.ts",
 	"files": [
-		"dist"
+		"dist",
+		"scripts",
+		"supabase/seeds"
 	],
 	"scripts": {
 		"build": "vite build",
 		"db:remote:backup": "node scripts/backup-supabase-linked.mjs",
+		"db:local:auth:seed": "bash scripts/seed-shared-auth-users-local.sh",
+		"db:local:auth:reset": "bash scripts/reset-shared-auth-users-local.sh",
+		"db:local:auth:reset:all": "bash scripts/reset-shared-auth-users-local.sh --all",
 		"dev": "vite build --watch",
 		"typecheck": "tsc --noEmit -p tsconfig.json",
 		"lint": "biome lint .",

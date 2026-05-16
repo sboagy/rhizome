@@ -38,8 +38,13 @@ backups/
 # macOS
 .DS_Store
 
-# Environment files
-.env*
+# Environment files, but we want to include .env.example or .env.template
+.env
+.env.local
+.env.private
+.env.production
+.env.development
+.env.test
 
 # Backup/temp files
 .$*

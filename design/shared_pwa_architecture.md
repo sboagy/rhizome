@@ -26,10 +26,8 @@ Unless explicitly instructed by the user to "build toward the target architectur
 ### cubefsrs
 
 - Very much a work in progress.
-- transitioning from firebase to supabase.
-- The strict database namespacing (`public` vs `cubefsrs`) is not implemented yet.
 
-## 2. Target Architecture (Where we are moving)
+## 2. cubefsrs Architecture
 
 1. **Human:** View https://github.com/sboagy/rhizome/blob/main/design/shared_pwa_architecture-multi-repo.drawio.svg, but note the Mermaid diagram is the authoritive version if the two diagrams get out of sync.
 2. **Agent:** The following Mermaid diagram represents our target architecture. This is the structural goal we are migrating toward. As we refactor, all new boundaries, dependencies, and infrastructure changes should align with this map.

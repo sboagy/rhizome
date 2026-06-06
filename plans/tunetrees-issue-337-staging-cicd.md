@@ -331,6 +331,7 @@ Minimum implementation:
   - `--no-owner` and `--no-acl`, because production and staging Supabase projects can have different role ownership and grants;
   - `--disable-triggers`, so restore can tolerate FK dependencies during out-of-order data load;
   - `-n public -n auth`, with no implicit schema inclusion.
+- `pg_dump --disable-triggers` embeds `ALTER TABLE auth.users ENABLE TRIGGER ALL` in the dump output immediately after each table's COPY block. When `psql` processes the dump, this re-enables auth triggers before sanitization begins, defeating the Database Trigger Method isolation. To compensate, the restore-and-sanitize script must re-run `ALTER TABLE auth.users DISABLE TRIGGER ALL` immediately after `psql` exits and before the sanitization SQL executes. The script sequence must be: (1) `DISABLE TRIGGER ALL`, (2) `psql` restore, (3) `DISABLE TRIGGER ALL` again, (4) sanitization SQL, (5) post-sanitization verification, (6) `ENABLE TRIGGER ALL` on success only.
 - The data dump must not include `cubefsrs`, `realtime`, `storage`, `supabase_migrations`, or any other schema outside explicit `public` and `auth`.
 - Verbose command logging must be disabled during `auth` dump/restore:
   - do not use `pg_dump --verbose`, `psql --echo-all`, `set -x`, or any command wrapper that can print copied auth rows or SQL values into CI logs;
@@ -367,7 +368,7 @@ Safety gates:
 - refuse to run if source hostname is not the production Supabase project;
 - refuse to run if staging Supabase SMTP is configured to deliver to external addresses;
 - refuse to run if staging Supabase SMTP/email-provider state cannot be verified before restoring `auth.users`;
-- protect the disable-restore-sanitize-enable sequence with a transaction where possible; otherwise use an `ON ERROR` trap that deletes un-sanitized/non-whitelisted `auth.users` rows before triggers are re-enabled and before the job exits;
+- protect the disable-restore-disable-sanitize-verify-enable sequence with a transaction where possible; otherwise use an `ON ERROR` trap that deletes un-sanitized/non-whitelisted `auth.users` rows before triggers are re-enabled and before the job exits;
 - trap restore/sanitization failures and delete all non-whitelisted `auth.users` rows before failing the job;
 - validate sanitized JSONB recursively for email-shaped strings, including nested objects and arrays in `raw_user_meta_data` and `raw_app_meta_data`;
 - validate the named `public.user_profile` PII columns after sanitization and fail if any non-whitelisted values remain production-looking;

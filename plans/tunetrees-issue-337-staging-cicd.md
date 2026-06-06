@@ -268,8 +268,16 @@ Minimum implementation:
 - Use TuneTrees `npm run db:remote:backup` for the initial production backup of `public` and `auth`.
 - Add TuneTrees `npm run db:remote:backup:all` to back up `public`, `cubefsrs`, and `auth`.
 - Preserve rhizome as the actual backup implementation owner; TuneTrees and cubefsrs package scripts should delegate to rhizome rather than duplicating backup logic.
-- Dump production `public` and `auth` data using direct `pg_dump`.
-- Restore into staging using direct `psql`/`pg_restore`.
+- Dump production `public` and `auth` data using direct `pg_dump` with non-negotiable flags:
+  - `--data-only`, because staging schema must come from migrations only and the data-copy path must never dump or restore DDL;
+  - `--no-owner` and `--no-acl`, because production and staging Supabase projects can have different role ownership and grants;
+  - `--disable-triggers`, so restore can tolerate FK dependencies during out-of-order data load;
+  - `-n public -n auth`, with no implicit schema inclusion.
+- The data dump must not include `cubefsrs`, `realtime`, `storage`, `supabase_migrations`, or any other schema outside explicit `public` and `auth`.
+- Restore into staging using direct `psql`/`pg_restore` with non-negotiable restore behavior:
+  - run inside one transaction via `--single-transaction`;
+  - stop on the first error via `-v ON_ERROR_STOP=1`;
+  - fail the workflow rather than leaving staging half-populated after a mid-restore failure.
 - Run sanitization in staging with direct privileged database connection.
 - Fail CI if any non-whitelisted `auth.users.email` remains outside the safe staging domain.
 - Fail CI if staging `SUPABASE_URL` or `DATABASE_URL` points at production.

@@ -406,12 +406,55 @@ Trigger:
 
 Behavior:
 
-- check out `main`;
-- verify the selected SHA has a successful staging workflow run unless explicitly overridden;
+- require a `workflow_dispatch` input named `deploy_sha` containing the exact full commit SHA to deploy;
+- check out that exact SHA, not the current `main` HEAD;
+- verify that exact SHA has a successful GitHub Deployment record for the `staging` environment unless explicitly overridden;
 - build production with `.env.prod.template`;
 - deploy production Worker;
 - deploy production Pages to `tunetrees-pwa` production branch/domain;
 - run production-safe smoke tests only.
+
+### Staging proof requirement
+
+This is a non-negotiable release gate, not an implementation-time choice.
+
+After a successful Phase 1 staging deploy, production-to-staging data refresh, and staging smoke/E2E test run, the staging CI job must create a GitHub Deployment record tied to the exact `${{ github.sha }}`:
+
+- create a Deployment via the GitHub Deployments API with `environment = "staging"` and `ref` set to `${{ github.sha }}`;
+- create a Deployment status of `success` only after every staging deploy, data refresh, and staging test gate has passed;
+- use `gh api repos/:owner/:repo/deployments` and `gh api repos/:owner/:repo/deployments/{deployment_id}/statuses` or an equivalent GitHub REST client;
+- do not mark the Deployment `success` before the staging tests complete.
+
+The production workflow must check this Deployment API proof before deploying:
+
+- accept only an exact `deploy_sha` input from `workflow_dispatch`;
+- query GitHub Deployments for `environment=staging` and the exact `deploy_sha`;
+- inspect the matching Deployment statuses;
+- proceed only if at least one Deployment for that exact SHA has a `success` status;
+- fail closed if no matching successful `staging` Deployment exists.
+
+The production workflow must not interpret "latest successful staging run" or "HEAD of main has passed staging" as sufficient proof. The check is exactly: does a `staging` environment Deployment exist for this exact SHA with status `success`?
+
+Override behavior:
+
+- include an explicit override input, for example `override_staging_check`;
+- require a human-readable override reason when the override is used;
+- write an audit entry to the GitHub job summary describing the SHA, actor, timestamp, and reason;
+- optionally also write the same audit entry as a comment on issue #337 or a dedicated deployment-audit issue;
+- never bypass the staging Deployment proof silently.
+
+### Release train lock
+
+Once a production deploy is triggered for SHA-A, staging is treated as locked for SHA-A until the production deploy completes or is explicitly aborted.
+
+Minimum implementation requirement:
+
+- production deploys use a single production-promotion concurrency group with `cancel-in-progress: false`;
+- the production workflow job summary must state that staging is locked for `deploy_sha` while production promotion is in progress;
+- operators must not intentionally update or promote a different staging SHA while the production deploy is running;
+- if the production deploy is aborted, the aborting operator must record the abort in the production workflow summary or the deployment-audit issue before staging is considered unlocked.
+
+GitHub has no native lock for an external staging environment that automatically coordinates with an independent production workflow. If stronger enforcement is needed after Phase 2, add a GitHub Environment protection rule on `staging` or an explicit repo-level promotion-lock mechanism before allowing fully unattended production promotion.
 
 Recommended production smoke coverage:
 

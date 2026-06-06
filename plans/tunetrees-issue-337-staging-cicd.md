@@ -378,6 +378,12 @@ Add a staging Playwright config/project that:
 Modify existing `.github/workflows/ci.yml`:
 
 - keep current quality/unit/local E2E/PWA gates;
+- split CI concurrency behavior so fast feedback remains cancellable but staging environment mutations are serialized:
+  - keep `cancel-in-progress: true` for quality, unit, local E2E, and local PWA jobs;
+  - move staging deploy, production-to-staging data refresh, and staging smoke/E2E tests into a separate job or reusable workflow with its own concurrency group;
+  - use a staging deploy concurrency group such as `staging-deploy-${{ github.ref }}`;
+  - set `cancel-in-progress: false` for the staging deploy concurrency group so rapid `main` pushes queue instead of killing an in-progress deploy/refresh/test sequence;
+  - do not rely on the current top-level `concurrency: cancel-in-progress: true` for jobs that mutate staging.
 - change current deploy jobs on `main` from production deploy to staging deploy;
 - preserve production deploy scripts for Phase 2, but do not deploy production from `main`;
 - run the staging Worker `wrangler deploy --env staging --dry-run` binding verification and fail if resolved bindings include production resources;
@@ -385,6 +391,8 @@ Modify existing `.github/workflows/ci.yml`:
 - deploy staging Pages;
 - refresh staging DB from production unless disabled;
 - run staging smoke/E2E tests after deploy and data refresh.
+
+Without the separate non-cancelling staging concurrency group, rapid PR merge sequences can cancel a data refresh or deploy mid-flight and corrupt the staging environment.
 
 ## Phase 2: TuneTrees Production Manual Deploy
 

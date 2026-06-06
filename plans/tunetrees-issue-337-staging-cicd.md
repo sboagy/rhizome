@@ -273,10 +273,25 @@ Minimum implementation:
   - use direct privileged staging Postgres credentials capable of altering triggers on `auth.users`;
   - run `ALTER TABLE auth.users DISABLE TRIGGER ALL;` before restoring any rows into `auth.users`, unless the implementation identifies and disables the exact Supabase GoTrue email-related trigger names instead;
   - keep those triggers disabled through restore and JSON-driven sanitization;
-  - execute the JSON-driven sanitization logic to scrub emails, display names, and configured public-schema PII fields while triggers remain disabled;
+  - execute the JSON-driven sanitization logic to scrub the named `auth.users` and `public` schema PII fields below while triggers remain disabled;
   - run `ALTER TABLE auth.users ENABLE TRIGGER ALL;` only after sanitization and post-sanitization verification have succeeded.
 - The Infrastructure API Method is explicitly rejected for this pipeline. Do not use the Supabase Management API or `SUPABASE_ACCESS_TOKEN` for email isolation.
 - The CI pipeline must operate using only project-scoped credentials such as `SUPABASE_SERVICE_ROLE_KEY` and direct privileged staging Postgres credentials.
+- The `auth.users` sanitization must explicitly scrub at least these columns for every non-whitelisted user:
+  - `email`: replace with deterministic staging-only address such as `scrubbed-[id]@staging.tunetrees.com`;
+  - `phone`: set to `NULL`;
+  - `raw_user_meta_data`: replace/remove PII-bearing values and ensure no email-shaped strings remain anywhere in the JSONB document;
+  - `raw_app_meta_data`: replace/remove PII-bearing values and ensure no email-shaped strings remain anywhere in the JSONB document;
+  - `email_change`: set to `NULL` or an equivalent empty value;
+  - `encrypted_password`: replace with a fixed staging-only bcrypt hash, stored as a script constant and never derived from production data;
+  - `confirmation_token`, `recovery_token`, `email_change_token_new`, `email_change_token_current`, and `reauthentication_token`: zero out using `NULL` or an equivalent empty value.
+- The TuneTrees `public` schema sanitization must explicitly scrub these current known PII columns:
+  - `public.user_profile.name`: replace with a deterministic staging display name such as `Staging User [short-id]`;
+  - `public.user_profile.email`: replace with the matching staging-only scrubbed address used for `auth.users.email`;
+  - `public.user_profile.phone`: set to `NULL`;
+  - `public.user_profile.phone_verified`: set to `NULL`;
+  - `public.user_profile.avatar_url`: set to `NULL` or a staging-safe placeholder URL.
+- If future schema inspection finds additional `public` columns that store user display names, emails, phones, avatar/profile URLs, or equivalent direct identifiers, the scrub config must be updated before the data-copy job is allowed to run.
 - Dump production `public` and `auth` data using direct `pg_dump` with non-negotiable flags:
   - `--data-only`, because staging schema must come from migrations only and the data-copy path must never dump or restore DDL;
   - `--no-owner` and `--no-acl`, because production and staging Supabase projects can have different role ownership and grants;
@@ -295,6 +310,8 @@ Minimum implementation:
 - If same-transaction sanitization is not technically possible, sanitization must run immediately after restore with an `ON ERROR`/failure trap that deletes all un-sanitized or non-whitelisted `auth.users` rows before triggers can be re-enabled.
 - If sanitization fails, CI must fail fast, delete the un-sanitized staging `auth.users` rows, and must not re-enable the disabled auth triggers until unsafe rows have been removed.
 - Fail CI if any non-whitelisted `auth.users.email` remains outside the safe staging domain.
+- Fail CI if any non-whitelisted `auth.users.raw_user_meta_data` or `auth.users.raw_app_meta_data` JSONB value contains an email-shaped string anywhere in the document, not only at top-level keys.
+- Fail CI if any named TuneTrees `public` PII column listed above retains non-whitelisted production-looking PII after sanitization.
 - Fail CI if staging `SUPABASE_URL` or `DATABASE_URL` points at production.
 - Fail CI if source and target project refs/hosts match.
 - Support `SKIP_STAGING_DATA_REFRESH=true` and workflow input `skip_staging_data_refresh` to skip refresh temporarily, but default to refresh-on-successful-staging-deploy before staging tests.
@@ -319,6 +336,8 @@ Safety gates:
 - refuse to run if source hostname is not the production Supabase project;
 - protect the disable-restore-sanitize-enable sequence with a transaction where possible; otherwise use an `ON ERROR` trap that deletes un-sanitized/non-whitelisted `auth.users` rows before triggers are re-enabled and before the job exits;
 - trap restore/sanitization failures and delete all non-whitelisted `auth.users` rows before failing the job;
+- validate sanitized JSONB recursively for email-shaped strings, including nested objects and arrays in `raw_user_meta_data` and `raw_app_meta_data`;
+- validate the named `public.user_profile` PII columns after sanitization and fail if any non-whitelisted values remain production-looking;
 - keep verbose `psql`/`pg_dump` logging off for all auth dump/restore operations to prevent PII from entering CI logs;
 - use dry-run/plan mode for the first validation path.
 

@@ -54,6 +54,7 @@ Use 1Password for staging secrets, matching the current production pattern.
 - Store staging values under 1Password item `op://rhizome/shared-staging/...`.
 - Keep only `OP_SERVICE_ACCOUNT_TOKEN` in GitHub Environment secrets.
 - Do not duplicate staging Supabase/Cloudflare secrets directly into GitHub repository secrets unless a later constraint forces it.
+- Do not provide account-level Supabase Personal Access Tokens to GitHub Actions. `SUPABASE_ACCESS_TOKEN` is explicitly forbidden for this pipeline because its account-level blast radius is unacceptable.
 
 ### Staging Supabase
 
@@ -268,17 +269,31 @@ Minimum implementation:
 - Use TuneTrees `npm run db:remote:backup` for the initial production backup of `public` and `auth`.
 - Add TuneTrees `npm run db:remote:backup:all` to back up `public`, `cubefsrs`, and `auth`.
 - Preserve rhizome as the actual backup implementation owner; TuneTrees and cubefsrs package scripts should delegate to rhizome rather than duplicating backup logic.
+- Before restoring any data into `auth.users`, isolate staging email delivery using the Database Trigger Method and only project-scoped credentials:
+  - use direct privileged staging Postgres credentials capable of altering triggers on `auth.users`;
+  - run `ALTER TABLE auth.users DISABLE TRIGGER ALL;` before restoring any rows into `auth.users`, unless the implementation identifies and disables the exact Supabase GoTrue email-related trigger names instead;
+  - keep those triggers disabled through restore and JSON-driven sanitization;
+  - execute the JSON-driven sanitization logic to scrub emails, display names, and configured public-schema PII fields while triggers remain disabled;
+  - run `ALTER TABLE auth.users ENABLE TRIGGER ALL;` only after sanitization and post-sanitization verification have succeeded.
+- The Infrastructure API Method is explicitly rejected for this pipeline. Do not use the Supabase Management API or `SUPABASE_ACCESS_TOKEN` for email isolation.
+- The CI pipeline must operate using only project-scoped credentials such as `SUPABASE_SERVICE_ROLE_KEY` and direct privileged staging Postgres credentials.
 - Dump production `public` and `auth` data using direct `pg_dump` with non-negotiable flags:
   - `--data-only`, because staging schema must come from migrations only and the data-copy path must never dump or restore DDL;
   - `--no-owner` and `--no-acl`, because production and staging Supabase projects can have different role ownership and grants;
   - `--disable-triggers`, so restore can tolerate FK dependencies during out-of-order data load;
   - `-n public -n auth`, with no implicit schema inclusion.
 - The data dump must not include `cubefsrs`, `realtime`, `storage`, `supabase_migrations`, or any other schema outside explicit `public` and `auth`.
+- Verbose command logging must be disabled during `auth` dump/restore:
+  - do not use `pg_dump --verbose`, `psql --echo-all`, `set -x`, or any command wrapper that can print copied auth rows or SQL values into CI logs;
+  - logs may include counts, schema names, and project refs, but must not include raw user emails or auth row contents.
 - Restore into staging using direct `psql`/`pg_restore` with non-negotiable restore behavior:
   - run inside one transaction via `--single-transaction`;
   - stop on the first error via `-v ON_ERROR_STOP=1`;
   - fail the workflow rather than leaving staging half-populated after a mid-restore failure.
 - Run sanitization in staging with direct privileged database connection.
+- Sanitization must run in the same transaction block as the restore where possible.
+- If same-transaction sanitization is not technically possible, sanitization must run immediately after restore with an `ON ERROR`/failure trap that deletes all un-sanitized or non-whitelisted `auth.users` rows before triggers can be re-enabled.
+- If sanitization fails, CI must fail fast, delete the un-sanitized staging `auth.users` rows, and must not re-enable the disabled auth triggers until unsafe rows have been removed.
 - Fail CI if any non-whitelisted `auth.users.email` remains outside the safe staging domain.
 - Fail CI if staging `SUPABASE_URL` or `DATABASE_URL` points at production.
 - Fail CI if source and target project refs/hosts match.
@@ -286,11 +301,25 @@ Minimum implementation:
 
 Safety gates:
 
+- explicitly treat the interval between `auth.users` restore and sanitization as a PII exposure window that must be minimized, email-isolated, and guarded by failure cleanup;
+- reject the Infrastructure API Method entirely:
+  - do not put `SUPABASE_ACCESS_TOKEN` in `op://rhizome/shared-staging/...`;
+  - do not expose an account-level Supabase Personal Access Token to GitHub Actions;
+  - do not use the Supabase Management API for staging email isolation in this pipeline.
+- isolate staging email delivery through the Database Trigger Method before any rows are restored into `auth.users`:
+  - require direct privileged staging Postgres credentials capable of running `ALTER TABLE auth.users DISABLE TRIGGER ALL;` and `ALTER TABLE auth.users ENABLE TRIGGER ALL;`;
+  - fail before data copy if the trigger-disable statement cannot be applied;
+  - keep auth triggers disabled for the entire restore and sanitization sequence;
+  - run `ALTER TABLE auth.users ENABLE TRIGGER ALL;` only after sanitization and post-sanitization verification have succeeded;
+  - if a narrower implementation disables specific Supabase GoTrue email triggers instead of all triggers, those trigger names and exact disable/enable SQL must be documented in the script and test output.
 - require explicit `SOURCE_ENV=production` and `TARGET_ENV=staging`;
 - print source/target project refs before execution;
 - refuse to run if source and target project refs match;
 - refuse to run if target hostname is not the staging Supabase project;
 - refuse to run if source hostname is not the production Supabase project;
+- protect the disable-restore-sanitize-enable sequence with a transaction where possible; otherwise use an `ON ERROR` trap that deletes un-sanitized/non-whitelisted `auth.users` rows before triggers are re-enabled and before the job exits;
+- trap restore/sanitization failures and delete all non-whitelisted `auth.users` rows before failing the job;
+- keep verbose `psql`/`pg_dump` logging off for all auth dump/restore operations to prevent PII from entering CI logs;
 - use dry-run/plan mode for the first validation path.
 
 ### 5. Staging Playwright tests

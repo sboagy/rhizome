@@ -194,7 +194,12 @@ These are one-time/manual Cloudflare setup items before the Phase 1 workflow can
 Scott has already configured the staging project and OAuth callbacks. Remaining checks:
 
 1. Confirm the staging database connection string is compatible with Hyperdrive.
-2. Confirm `shared-staging` includes:
+2. Configure staging Auth email delivery so copied production users can never receive email from staging:
+   - acceptable: Supabase built-in SMTP/email delivery disabled for staging;
+   - acceptable: custom SMTP pointed at a null/catch-all provider such as Mailtrap, with no forwarding to external addresses;
+   - unacceptable: any provider configuration that can deliver to arbitrary external recipient addresses;
+   - record the chosen staging email-provider configuration and verification method for the Phase 1 data-refresh preflight.
+3. Confirm `shared-staging` includes:
    - `SUPABASE_URL`
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
@@ -205,7 +210,7 @@ Scott has already configured the staging project and OAuth callbacks. Remaining 
    - `VITE_WORKER_URL_TUNETREES` set to `https://staging-api.tunetrees.com`
    - staging Hyperdrive ID
    - `VITE_R2_AUDIO_BASE_URL`
-3. Confirm Realtime table publications are created by migrations/scripts, not only dashboard state.
+4. Confirm Realtime table publications are created by migrations/scripts, not only dashboard state.
 
 ## Phase 1: TuneTrees Staging Deployment And Tests
 
@@ -293,6 +298,11 @@ Minimum implementation:
 - Use TuneTrees `npm run db:remote:backup` for the initial production backup of `public` and `auth`.
 - Add TuneTrees `npm run db:remote:backup:all` to back up `public`, `cubefsrs`, and `auth`.
 - Preserve rhizome as the actual backup implementation owner; TuneTrees and cubefsrs package scripts should delegate to rhizome rather than duplicating backup logic.
+- Before restoring any `auth.users` data, run a pre-copy staging SMTP safety check:
+  - verify through the Supabase Management API, or an equivalent authoritative project-settings API, that the staging Supabase project's email provider is disabled or redirected to a null/catch-all provider such as Mailtrap;
+  - fail before dump/restore if the staging project is configured to deliver email to external addresses;
+  - fail before dump/restore if the script cannot verify the staging SMTP/email-provider state with sufficient confidence;
+  - this is a read-only verification guard and does not replace the Database Trigger Method below.
 - Before restoring any data into `auth.users`, isolate staging email delivery using the Database Trigger Method and only project-scoped credentials:
   - use direct privileged staging Postgres credentials capable of altering triggers on `auth.users`;
   - run `ALTER TABLE auth.users DISABLE TRIGGER ALL;` before restoring any rows into `auth.users`, unless the implementation identifies and disables the exact Supabase GoTrue email-related trigger names instead;
@@ -358,6 +368,8 @@ Safety gates:
 - refuse to run if source and target project refs match;
 - refuse to run if target hostname is not the staging Supabase project;
 - refuse to run if source hostname is not the production Supabase project;
+- refuse to run if staging Supabase SMTP is configured to deliver to external addresses;
+- refuse to run if staging Supabase SMTP/email-provider state cannot be verified before restoring `auth.users`;
 - protect the disable-restore-sanitize-enable sequence with a transaction where possible; otherwise use an `ON ERROR` trap that deletes un-sanitized/non-whitelisted `auth.users` rows before triggers are re-enabled and before the job exits;
 - trap restore/sanitization failures and delete all non-whitelisted `auth.users` rows before failing the job;
 - validate sanitized JSONB recursively for email-shaped strings, including nested objects and arrays in `raw_user_meta_data` and `raw_app_meta_data`;

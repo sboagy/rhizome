@@ -233,11 +233,29 @@ It should include at least:
 Update `worker/wrangler.toml` with `[env.staging]`:
 
 - `name = "tunetrees-sync-worker-staging"`
-- staging `SUPABASE_URL`
-- staging Hyperdrive binding under the same runtime binding name `HYPERDRIVE`
-- staging R2 binding name `TUNETREES_VAULT`
-- bucket name `tunetrees-vault-staging`
 - route/custom domain for `staging-api.tunetrees.com` if managed through Wrangler config
+
+Wrangler environment inheritance is a production-resource footgun: top-level `[[r2_buckets]]`, `[[hyperdrive]]`, and `[vars]` can be inherited by `[env.staging]` unless explicitly overridden. The staging environment must therefore define all environment-specific bindings explicitly and must never rely on inherited top-level production bindings.
+
+`[env.staging]` must explicitly define:
+
+- `[[env.staging.r2_buckets]]` with:
+  - `binding = "TUNETREES_VAULT"`
+  - `bucket_name = "tunetrees-vault-staging"`
+  - no inherited production `tunetrees-vault` bucket
+- `[[env.staging.hyperdrive]]` with:
+  - `binding = "HYPERDRIVE"`
+  - the staging Hyperdrive ID from `op://rhizome/shared-staging/...`
+  - no inherited production Hyperdrive ID
+- `[env.staging.vars]` with:
+  - `SUPABASE_URL` set to the staging Supabase URL
+  - no inherited production Supabase URL
+
+Before the real staging Worker deploy, CI must run `wrangler deploy --env staging --dry-run` or the closest Wrangler-supported equivalent and parse/verify the resolved configuration. The deploy must fail before publishing if the resolved staging bindings contain production resource names or IDs, including:
+
+- `tunetrees-vault`
+- the production Hyperdrive ID
+- the production Supabase URL/project ref
 
 Update `worker/package.json` deploy scripts so staging and production deploys are explicit:
 
@@ -362,6 +380,7 @@ Modify existing `.github/workflows/ci.yml`:
 - keep current quality/unit/local E2E/PWA gates;
 - change current deploy jobs on `main` from production deploy to staging deploy;
 - preserve production deploy scripts for Phase 2, but do not deploy production from `main`;
+- run the staging Worker `wrangler deploy --env staging --dry-run` binding verification and fail if resolved bindings include production resources;
 - deploy staging Worker before staging Pages build if the bundle points at `https://staging-api.tunetrees.com`;
 - deploy staging Pages;
 - refresh staging DB from production unless disabled;

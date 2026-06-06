@@ -54,7 +54,7 @@ Use 1Password for staging secrets, matching the current production pattern.
 - Store staging values under 1Password item `op://rhizome/shared-staging/...`.
 - Keep only `OP_SERVICE_ACCOUNT_TOKEN` in GitHub Environment secrets.
 - Do not duplicate staging Supabase/Cloudflare secrets directly into GitHub repository secrets unless a later constraint forces it.
-- Do not provide account-level Supabase Personal Access Tokens to GitHub Actions. `SUPABASE_ACCESS_TOKEN` is explicitly forbidden for this pipeline because its account-level blast radius is unacceptable.
+- Do not provide account-level Supabase Personal Access Tokens to GitHub Actions for active email isolation intervention. `SUPABASE_ACCESS_TOKEN` must not be used to change or toggle SMTP settings; the sole permitted Management API use in this pipeline is the read-only staging SMTP preflight verification described in Phase 1.
 
 ### Staging Supabase
 
@@ -309,7 +309,7 @@ Minimum implementation:
   - keep those triggers disabled through restore and JSON-driven sanitization;
   - execute the JSON-driven sanitization logic to scrub the named `auth.users` and `public` schema PII fields below while triggers remain disabled;
   - run `ALTER TABLE auth.users ENABLE TRIGGER ALL;` only after sanitization and post-sanitization verification have succeeded.
-- The Infrastructure API Method is explicitly rejected for this pipeline. Do not use the Supabase Management API or `SUPABASE_ACCESS_TOKEN` for email isolation.
+- The Infrastructure API Method is explicitly rejected for active email isolation intervention in this pipeline. Do not use the Supabase Management API or `SUPABASE_ACCESS_TOKEN` to change or toggle SMTP settings; use the Management API only for the read-only SMTP preflight verification described above.
 - The CI pipeline must operate using only project-scoped credentials such as `SUPABASE_SERVICE_ROLE_KEY` and direct privileged staging Postgres credentials.
 - The `auth.users` sanitization must explicitly scrub at least these columns for every non-whitelisted user:
   - `email`: replace with deterministic staging-only address such as `scrubbed-[id]@staging.tunetrees.com`;
@@ -353,10 +353,7 @@ Minimum implementation:
 Safety gates:
 
 - explicitly treat the interval between `auth.users` restore and sanitization as a PII exposure window that must be minimized, email-isolated, and guarded by failure cleanup;
-- reject the Infrastructure API Method entirely:
-  - do not put `SUPABASE_ACCESS_TOKEN` in `op://rhizome/shared-staging/...`;
-  - do not expose an account-level Supabase Personal Access Token to GitHub Actions;
-  - do not use the Supabase Management API for staging email isolation in this pipeline.
+- reject the Infrastructure API Method for any active email isolation intervention: do not use the Supabase Management API to change or toggle SMTP settings, and do not expose `SUPABASE_ACCESS_TOKEN` to the pipeline for this purpose. The read-only SMTP preflight check (verifying staging project email configuration before the copy begins) is the sole permitted use of the Management API in this script.
 - isolate staging email delivery through the Database Trigger Method before any rows are restored into `auth.users`:
   - require direct privileged staging Postgres credentials capable of running `ALTER TABLE auth.users DISABLE TRIGGER ALL;` and `ALTER TABLE auth.users ENABLE TRIGGER ALL;`;
   - fail before data copy if the trigger-disable statement cannot be applied;

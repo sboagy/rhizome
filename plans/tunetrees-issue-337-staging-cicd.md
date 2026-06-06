@@ -68,7 +68,7 @@ Scott has created the staging project.
 - Realtime is enabled at the project level.
 - Any table-level Realtime publication setup must be handled by migrations/scripts.
 
-Note from code inspection: `worker/src/media.ts` already verifies non-HS JWTs via Supabase JWKS at `/auth/v1/.well-known/jwks.json`. Phase 1 still needs to verify the main generated/oosync sync worker auth path against RS256 staging tokens.
+Note from code inspection: `worker/src/media.ts` already verifies non-HS JWTs via Supabase JWKS at `/auth/v1/.well-known/jwks.json`. Phase 1 includes a prerequisite task to resolve the generated/oosync sync worker auth path before staging deploy proceeds.
 
 ### Staging Cloudflare resources
 
@@ -228,7 +228,13 @@ It should include at least:
 - `CLOUDFLARE_API_TOKEN`
 - staging Hyperdrive ID or deploy-time variable used to generate `worker/wrangler.toml`
 
-### 2. Configure Cloudflare Worker staging env
+### 2. Audit generated oosync sync worker auth path for RS256/JWKS
+
+Before deploying to staging, audit and confirm that the generated oosync sync worker auth path reads JWT public keys via JWKS (`/auth/v1/.well-known/jwks.json`) rather than a static `SUPABASE_JWT_SECRET`. If it uses a static HS256 secret, implement JWKS support in the oosync worker runtime or its generated auth middleware and land that change in oosync before Phase 1 proceeds. The current CI's use of `SUPABASE_JWT_SECRET` for local worker dev (HS256) confirms this gap exists and must be resolved.
+
+This is a Phase 1 prerequisite and completion gate. Phase 1 is not complete until the staging Worker sync path accepts RS256 Supabase tokens through JWKS verification, not only the media path and not only local HS256 worker-dev tokens.
+
+### 3. Configure Cloudflare Worker staging env
 
 Update `worker/wrangler.toml` with `[env.staging]`:
 
@@ -264,7 +270,7 @@ Update `worker/package.json` deploy scripts so staging and production deploys ar
 
 The staging script should run `op run --env-file="../.env.staging.template"` and deploy with `wrangler deploy --env staging`. It must set Cloudflare Worker secrets for staging without logging secret values.
 
-### 3. Configure Cloudflare Pages staging deploy
+### 4. Configure Cloudflare Pages staging deploy
 
 Keep Pages project `tunetrees-pwa`.
 
@@ -274,7 +280,7 @@ The staging deploy step should:
 - run `npx wrangler pages deploy dist --project-name=tunetrees-pwa --branch=staging`;
 - output the staging Pages deployment URL and `https://staging.tunetrees.com`.
 
-### 4. Production-to-staging database copy and sanitization
+### 5. Production-to-staging database copy and sanitization
 
 Place generic remote DB copy/safety tooling in rhizome if it can stay app-agnostic. Keep TuneTrees-specific scrub field config as explicit app config.
 
@@ -359,7 +365,7 @@ Safety gates:
 - keep verbose `psql`/`pg_dump` logging off for all auth dump/restore operations to prevent PII from entering CI logs;
 - use dry-run/plan mode for the first validation path.
 
-### 5. Staging Playwright tests
+### 6. Staging Playwright tests
 
 Add a staging Playwright config/project that:
 
@@ -373,7 +379,7 @@ Add a staging Playwright config/project that:
 - verifies a minimal authenticated read/sync path;
 - verifies staging media upload writes to `tunetrees-vault-staging`, not production.
 
-### 6. CI workflow changes
+### 7. CI workflow changes
 
 Modify existing `.github/workflows/ci.yml`:
 

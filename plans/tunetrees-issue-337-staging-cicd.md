@@ -400,6 +400,11 @@ Modify existing `.github/workflows/ci.yml`:
   - use a staging deploy concurrency group such as `staging-deploy-${{ github.ref }}`;
   - set `cancel-in-progress: false` for the staging deploy concurrency group so rapid `main` pushes queue instead of killing an in-progress deploy/refresh/test sequence;
   - do not rely on the current top-level `concurrency: cancel-in-progress: true` for jobs that mutate staging.
+- The staging deploy job that creates GitHub Deployment records must declare job-level permissions:
+  - `contents: read`, for checkout;
+  - `deployments: write`, for `gh api repos/.../deployments` and deployment status creation;
+  - add this `permissions` key at the job level, not the workflow level, to keep the blast radius minimal.
+- Without job-level `deployments: write`, `gh api repos/.../deployments` returns 403 and the staging proof record is never created.
 - change current deploy jobs on `main` from production deploy to staging deploy;
 - preserve production deploy scripts for Phase 2, but do not deploy production from `main`;
 - run the staging Worker `wrangler deploy --env staging --dry-run` binding verification and fail if resolved bindings include production resources;
@@ -581,6 +586,7 @@ No further clarifying questions remain before top-down review.
 Likely TuneTrees files:
 
 - `.github/workflows/ci.yml`
+  - add job-level `permissions: contents: read` and `deployments: write` to the staging deploy job that creates GitHub Deployment records
 - later `.github/workflows/deploy-production.yml`
 - `.env.staging.template`
 - `wrangler.toml`

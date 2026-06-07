@@ -326,13 +326,14 @@ Minimum implementation:
   - `public.user_profile.phone_verified`: set to `NULL`;
   - `public.user_profile.avatar_url`: set to `NULL` or a staging-safe placeholder URL.
 - If future schema inspection finds additional `public` columns that store user display names, emails, phones, avatar/profile URLs, or equivalent direct identifiers, the scrub config must be updated before the data-copy job is allowed to run.
-- Dump production `public` and `auth` data using direct `pg_dump` with non-negotiable flags:
+- Dump production `public` data and only `auth.users` using direct `pg_dump` with non-negotiable flags:
   - `--data-only`, because staging schema must come from migrations only and the data-copy path must never dump or restore DDL;
   - `--no-owner` and `--no-acl`, because production and staging Supabase projects can have different role ownership and grants;
   - `--disable-triggers`, so restore can tolerate FK dependencies during out-of-order data load;
-  - `-n public -n auth`, with no implicit schema inclusion.
+  - `-n public -t auth.users`, with no implicit schema inclusion.
+- Other `auth` schema tables are intentionally excluded. Tables such as `auth.identities`, `auth.audit_log_entries`, and `auth.mfa_factors` can contain OAuth profile emails, provider JSON, IP addresses, phone numbers, TOTP records, and similar PII with no scrub path in this plan. They are auto-populated by GoTrue as users log in, so copying them imports sensitive provider state that staging does not need.
 - `pg_dump --disable-triggers` embeds `ALTER TABLE auth.users ENABLE TRIGGER ALL` in the dump output immediately after each table's COPY block. When `psql` processes the dump, this re-enables auth triggers before sanitization begins, defeating the Database Trigger Method isolation. To compensate, the restore-and-sanitize script must re-run `ALTER TABLE auth.users DISABLE TRIGGER ALL` immediately after `psql` exits and before the sanitization SQL executes. The script sequence must be: (1) `DISABLE TRIGGER ALL`, (2) `psql` restore, (3) `DISABLE TRIGGER ALL` again, (4) sanitization SQL, (5) post-sanitization verification, (6) `ENABLE TRIGGER ALL` on success only.
-- The data dump must not include `cubefsrs`, `realtime`, `storage`, `supabase_migrations`, or any other schema outside explicit `public` and `auth`.
+- The data dump must not include `cubefsrs`, `realtime`, `storage`, `supabase_migrations`, or any other schema/table outside explicit `public` and `auth.users`.
 - Verbose command logging must be disabled during `auth` dump/restore:
   - do not use `pg_dump --verbose`, `psql --echo-all`, `set -x`, or any command wrapper that can print copied auth rows or SQL values into CI logs;
   - logs may include counts, schema names, and project refs, but must not include raw user emails or auth row contents.
@@ -346,6 +347,7 @@ Minimum implementation:
 - If sanitization fails, CI must fail fast, delete the un-sanitized staging `auth.users` rows, and must not re-enable the disabled auth triggers until unsafe rows have been removed.
 - Fail CI if any non-whitelisted `auth.users.email` remains outside the safe staging domain.
 - Fail CI if any non-whitelisted `auth.users.raw_user_meta_data` or `auth.users.raw_app_meta_data` JSONB value contains an email-shaped string anywhere in the document, not only at top-level keys.
+- Fail CI if `auth.identities` contains rows for non-whitelisted users after restore, because production OAuth identities must not be copied into staging.
 - Fail CI if any named TuneTrees `public` PII column listed above retains non-whitelisted production-looking PII after sanitization.
 - Fail CI if staging `SUPABASE_URL` or `DATABASE_URL` points at production.
 - Fail CI if source and target project refs/hosts match.
@@ -371,6 +373,7 @@ Safety gates:
 - protect the disable-restore-disable-sanitize-verify-enable sequence with a transaction where possible; otherwise use an `ON ERROR` trap that deletes un-sanitized/non-whitelisted `auth.users` rows before triggers are re-enabled and before the job exits;
 - trap restore/sanitization failures and delete all non-whitelisted `auth.users` rows before failing the job;
 - validate sanitized JSONB recursively for email-shaped strings, including nested objects and arrays in `raw_user_meta_data` and `raw_app_meta_data`;
+- validate that `auth.identities` has no rows for non-whitelisted users after restore;
 - validate the named `public.user_profile` PII columns after sanitization and fail if any non-whitelisted values remain production-looking;
 - keep verbose `psql`/`pg_dump` logging off for all auth dump/restore operations to prevent PII from entering CI logs;
 - use dry-run/plan mode for the first validation path.
@@ -382,6 +385,7 @@ Add a staging Playwright config/project that:
 - points `baseURL` at `https://staging.tunetrees.com`;
 - does not start local web servers;
 - uses staging test credentials from 1Password;
+- uses email+password staging test accounts rather than OAuth, so staging tests do not depend on pre-populated `auth.identities` rows;
 - verifies anonymous app shell;
 - verifies auth redirect configuration;
 - verifies Worker `/health`;

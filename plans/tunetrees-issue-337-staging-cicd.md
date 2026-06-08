@@ -2,7 +2,14 @@
 
 Issue: https://github.com/sboagy/tunetrees/issues/337
 
-Status: Ready for Scott's top-down review. Clarifying questions are resolved. Do not implement until Scott gives explicit go-ahead.
+## Status
+
+- [x] top-down review. 
+- [x] Clarifying questions are resolved.
+- [x] "Cloudflare Setup Instructions For Scott" completed.
+- [x] 1Password vault for `rhizome/shared-staging` fully configured.
+- [x] `.env.staging.template` created for both the tunetrees and cubefsrs repos.
+- [x] Add staging settings and hyperdrive configuration for both the tunetrees and cubefsrs repos in wrangler.toml files.
 
 ## Goal
 

@@ -61,7 +61,7 @@ Use 1Password for staging secrets, matching the current production pattern.
 - Store staging values under 1Password item `op://rhizome/shared-staging/...`.
 - Keep only `OP_SERVICE_ACCOUNT_TOKEN` in GitHub Environment secrets.
 - Do not duplicate staging Supabase/Cloudflare secrets directly into GitHub repository secrets unless a later constraint forces it.
-- Do not provide account-level Supabase Personal Access Tokens to GitHub Actions for active email isolation intervention. `SUPABASE_ACCESS_TOKEN` must not be used to change or toggle SMTP settings; the sole permitted Management API use in this pipeline is the read-only staging SMTP preflight verification described in Phase 1.
+- Do not provide account-level Supabase Personal Access Tokens to GitHub Actions for staging email isolation or SMTP verification. `SUPABASE_ACCESS_TOKEN` must not be required by this pipeline. The staging SMTP preflight is a local environment assertion requiring `SUPABASE_SMTP_HOST` to match `STAGING_SMTP_SAFE_HOST_PATTERN`, with no Supabase Management API call.
 
 ### Staging Supabase
 
@@ -305,18 +305,18 @@ Minimum implementation:
 - Use TuneTrees `npm run db:remote:backup` for the initial production backup of `public` and `auth`.
 - Add TuneTrees `npm run db:remote:backup:all` to back up `public`, `cubefsrs`, and `auth`.
 - Preserve rhizome as the actual backup implementation owner; TuneTrees and cubefsrs package scripts should delegate to rhizome rather than duplicating backup logic.
-- Before restoring any `auth.users` data, run a pre-copy staging SMTP safety check:
-  - verify through the Supabase Management API, or an equivalent authoritative project-settings API, that the staging Supabase project's email provider is disabled or redirected to a null/catch-all provider such as Mailtrap;
-  - fail before dump/restore if the staging project is configured to deliver email to external addresses;
-  - fail before dump/restore if the script cannot verify the staging SMTP/email-provider state with sufficient confidence;
-  - this is a read-only verification guard and does not replace the Database Trigger Method below.
-- Before restoring any data into `auth.users`, isolate staging email delivery using the Database Trigger Method and only project-scoped credentials:
-  - use direct privileged staging Postgres credentials capable of altering triggers on `auth.users`;
-  - run `ALTER TABLE auth.users DISABLE TRIGGER ALL;` before restoring any rows into `auth.users`, unless the implementation identifies and disables the exact Supabase GoTrue email-related trigger names instead;
-  - keep those triggers disabled through restore and JSON-driven sanitization;
-  - execute the JSON-driven sanitization logic to scrub the named `auth.users` and `public` schema PII fields below while triggers remain disabled;
-  - run `ALTER TABLE auth.users ENABLE TRIGGER ALL;` only after sanitization and post-sanitization verification have succeeded.
-- The Infrastructure API Method is explicitly rejected for active email isolation intervention in this pipeline. Do not use the Supabase Management API or `SUPABASE_ACCESS_TOKEN` to change or toggle SMTP settings; use the Management API only for the read-only SMTP preflight verification described above.
+- Before refreshing staging data, apply TuneTrees migrations to the staging Supabase project so staging schema comes from migrations only; the data refresh script must validate that all dumped `public` tables and `auth.users` already exist in staging before any truncate/restore step runs.
+- Before restoring any `auth.users` data, run a pre-copy staging SMTP safety check using only local environment assertions:
+  - require `SUPABASE_SMTP_HOST` to be set to the staging project's configured null/catch-all SMTP host;
+  - require `STAGING_SMTP_SAFE_HOST_PATTERN`, and fail unless `SUPABASE_SMTP_HOST` matches that allow-list;
+  - fail before dump/restore if either local assertion is missing or if the SMTP host can deliver to external addresses;
+  - this is a local fail-closed verification guard and does not replace the Database Trigger Method below.
+- Before restoring any data into `auth.users`, sanitize the `auth.users` dump locally before it ever reaches staging:
+  - do not require ownership of Supabase-managed `auth.users`, because hosted Supabase database credentials can truncate and insert but cannot reliably run `ALTER TABLE auth.users DISABLE TRIGGER ALL;`;
+  - dump `auth.users` without `--disable-triggers` so the dump contains no trigger DDL for the Supabase-managed auth table;
+  - rewrite the plain COPY data for non-whitelisted users locally, scrubbing the named `auth.users` PII fields below before composing the staging restore file;
+  - restore only sanitized `auth.users` rows into staging; raw production auth rows must never be inserted into staging.
+- The Infrastructure API Method is explicitly rejected for email isolation and SMTP verification in this pipeline. Do not use the Supabase Management API or `SUPABASE_ACCESS_TOKEN` to change, toggle, or read SMTP settings from CI.
 - The CI pipeline must operate using only project-scoped credentials such as `SUPABASE_SERVICE_ROLE_KEY` and direct privileged staging Postgres credentials.
 - The `auth.users` sanitization must explicitly scrub at least these columns for every non-whitelisted user:
   - `email`: replace with deterministic staging-only address such as `scrubbed-[id]@staging.tunetrees.com`;
@@ -336,10 +336,11 @@ Minimum implementation:
 - Dump production `public` data and only `auth.users` using direct `pg_dump` with non-negotiable flags:
   - `--data-only`, because staging schema must come from migrations only and the data-copy path must never dump or restore DDL;
   - `--no-owner` and `--no-acl`, because production and staging Supabase projects can have different role ownership and grants;
-  - `--disable-triggers`, so restore can tolerate FK dependencies during out-of-order data load;
-  - `-n public -t auth.users`, with no implicit schema inclusion.
+  - no `--disable-triggers` for either dump, because hosted Supabase roles cannot reliably disable Supabase-managed auth triggers or app-table RI system triggers;
+  - exclude `public.sync_change_log`, because it is server-maintained sync bookkeeping that restore-time triggers repopulate and copying production rows can conflict with rows created during staging restore;
+  - `-n public` for the public dump and `-t auth.users` for the auth-user dump, with no implicit schema inclusion.
 - Other `auth` schema tables are intentionally excluded. Tables such as `auth.identities`, `auth.audit_log_entries`, and `auth.mfa_factors` can contain OAuth profile emails, provider JSON, IP addresses, phone numbers, TOTP records, and similar PII with no scrub path in this plan. They are auto-populated by GoTrue as users log in, so copying them imports sensitive provider state that staging does not need.
-- `pg_dump --disable-triggers` embeds `ALTER TABLE auth.users ENABLE TRIGGER ALL` in the dump output immediately after each table's COPY block. When `psql` processes the dump, this re-enables auth triggers before sanitization begins, defeating the Database Trigger Method isolation. To compensate, the restore-and-sanitize script must re-run `ALTER TABLE auth.users DISABLE TRIGGER ALL` immediately after `psql` exits and before the sanitization SQL executes. The script sequence must be: (1) `DISABLE TRIGGER ALL`, (2) `psql` restore, (3) `DISABLE TRIGGER ALL` again, (4) sanitization SQL, (5) post-sanitization verification, (6) `ENABLE TRIGGER ALL` on success only.
+- The `auth.users` dump must be sanitized before restore rather than restored raw and scrubbed later. This eliminates the PII timing window for `auth.users` in staging and avoids trigger ownership failures on hosted Supabase. The script sequence must be: (1) local SMTP assertion, (2) `pg_dump` public data without trigger DDL, (3) `pg_dump` `auth.users` without trigger DDL, (4) locally rewrite non-whitelisted auth COPY rows, (5) truncate staging public and auth data, (6) restore sanitized auth plus public data, (7) post-restore public/profile sanitization and validation.
 - The data dump must not include `cubefsrs`, `realtime`, `storage`, `supabase_migrations`, or any other schema/table outside explicit `public` and `auth.users`.
 - Verbose command logging must be disabled during `auth` dump/restore:
   - do not use `pg_dump --verbose`, `psql --echo-all`, `set -x`, or any command wrapper that can print copied auth rows or SQL values into CI logs;
@@ -350,8 +351,8 @@ Minimum implementation:
   - fail the workflow rather than leaving staging half-populated after a mid-restore failure.
 - Run sanitization in staging with direct privileged database connection.
 - Sanitization must run in the same transaction block as the restore where possible.
-- If same-transaction sanitization is not technically possible, sanitization must run immediately after restore with an `ON ERROR`/failure trap that deletes all un-sanitized or non-whitelisted `auth.users` rows before triggers can be re-enabled.
-- If sanitization fails, CI must fail fast, delete the un-sanitized staging `auth.users` rows, and must not re-enable the disabled auth triggers until unsafe rows have been removed.
+- If same-transaction sanitization is not technically possible, sanitization must run immediately after restore with an `ON ERROR`/failure trap that deletes all non-whitelisted `auth.users` rows before the job exits.
+- If sanitization fails, CI must fail fast and delete the non-whitelisted staging `auth.users` rows.
 - Fail CI if any non-whitelisted `auth.users.email` remains outside the safe staging domain.
 - Fail CI if any non-whitelisted `auth.users.raw_user_meta_data` or `auth.users.raw_app_meta_data` JSONB value contains an email-shaped string anywhere in the document, not only at top-level keys.
 - Fail CI if `auth.identities` contains rows for non-whitelisted users after restore, because production OAuth identities must not be copied into staging.
@@ -362,14 +363,9 @@ Minimum implementation:
 
 Safety gates:
 
-- explicitly treat the interval between `auth.users` restore and sanitization as a PII exposure window that must be minimized, email-isolated, and guarded by failure cleanup;
-- reject the Infrastructure API Method for any active email isolation intervention: do not use the Supabase Management API to change or toggle SMTP settings, and do not expose `SUPABASE_ACCESS_TOKEN` to the pipeline for this purpose. The read-only SMTP preflight check (verifying staging project email configuration before the copy begins) is the sole permitted use of the Management API in this script.
-- isolate staging email delivery through the Database Trigger Method before any rows are restored into `auth.users`:
-  - require direct privileged staging Postgres credentials capable of running `ALTER TABLE auth.users DISABLE TRIGGER ALL;` and `ALTER TABLE auth.users ENABLE TRIGGER ALL;`;
-  - fail before data copy if the trigger-disable statement cannot be applied;
-  - keep auth triggers disabled for the entire restore and sanitization sequence;
-  - run `ALTER TABLE auth.users ENABLE TRIGGER ALL;` only after sanitization and post-sanitization verification have succeeded;
-  - if a narrower implementation disables specific Supabase GoTrue email triggers instead of all triggers, those trigger names and exact disable/enable SQL must be documented in the script and test output.
+- explicitly avoid an `auth.users` PII exposure window in staging by sanitizing the auth dump before restore; public-profile PII is still sanitized immediately after restore and guarded by validation;
+- reject the Infrastructure API Method for email isolation and SMTP verification: do not use the Supabase Management API to change, toggle, or read SMTP settings from CI, and do not expose `SUPABASE_ACCESS_TOKEN` to the pipeline for this purpose. The SMTP preflight check must rely only on local environment assertions requiring `SUPABASE_SMTP_HOST` to match `STAGING_SMTP_SAFE_HOST_PATTERN`.
+- do not use the Database Trigger Method on hosted Supabase `auth.users`; instead sanitize `auth.users` dump rows locally before restore and fail if the sanitized dump transform cannot identify the `auth.users` COPY block and required columns.
 - require explicit `SOURCE_ENV=production` and `TARGET_ENV=staging`;
 - print source/target project refs before execution;
 - refuse to run if source and target project refs match;
@@ -377,7 +373,7 @@ Safety gates:
 - refuse to run if source hostname is not the production Supabase project;
 - refuse to run if staging Supabase SMTP is configured to deliver to external addresses;
 - refuse to run if staging Supabase SMTP/email-provider state cannot be verified before restoring `auth.users`;
-- protect the disable-restore-disable-sanitize-verify-enable sequence with a transaction where possible; otherwise use an `ON ERROR` trap that deletes un-sanitized/non-whitelisted `auth.users` rows before triggers are re-enabled and before the job exits;
+- protect the local-auth-sanitize, restore, post-restore-sanitize, and validation sequence with fail-fast behavior; because raw auth rows are never inserted into staging, cleanup must still delete non-whitelisted `auth.users` rows if a later validation step fails;
 - trap restore/sanitization failures and delete all non-whitelisted `auth.users` rows before failing the job;
 - validate sanitized JSONB recursively for email-shaped strings, including nested objects and arrays in `raw_user_meta_data` and `raw_app_meta_data`;
 - validate that `auth.identities` has no rows for non-whitelisted users after restore;

@@ -77,15 +77,18 @@ function main() {
   const dataFile = `${base}_data.sql`;
   const schemaArg = schemas.join(",");
 
+  const dbUrl = process.env.DATABASE_URL;
+  const connectionArgs = dbUrl ? ["--db-url", dbUrl] : ["--linked"];
+
   console.log(`\n[backup] Schemas: ${schemaArg}`);
   console.log(`[backup] Writing schema to: ${schemaFile}`);
-  run("supabase", ["db", "dump", "--linked", "--schema", schemaArg, "-f", schemaFile]);
+  run("supabase", ["db", "dump", ...connectionArgs, "--schema", schemaArg, "-f", schemaFile]);
 
   console.log(`\n[backup] Writing data to: ${dataFile}`);
   run("supabase", [
     "db",
     "dump",
-    "--linked",
+    ...connectionArgs,
     "--data-only",
     "--use-copy",
     "--schema",

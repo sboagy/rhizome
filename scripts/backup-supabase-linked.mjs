@@ -61,19 +61,19 @@ function run(command, args) {
   }
 }
 
-// Adds hostaddr=<ipv4> to the URL so pg_dump (running inside a Docker container
-// on the Supabase CLI) connects via IPv4. Docker on GitHub Actions runners
-// resolves hostnames to IPv6 addresses that are unreachable from the container.
-// Keeping the original hostname in `host` means TLS certificate validation still
-// works correctly against the server's certificate.
-async function addHostAddr(dbUrl) {
+// Replaces the hostname with its IPv4 address so the Docker container that
+// the Supabase CLI uses to run pg_dump connects via IPv4. Docker on GitHub
+// Actions resolves hostnames to IPv6 addresses that are unreachable from the
+// container. sslmode=require (Supabase default) only requires encryption and
+// does not verify the hostname, so connecting to an IP address works fine.
+async function resolveToIPv4Url(dbUrl) {
   try {
     const u = new URL(dbUrl);
     if (/^\d{1,3}(\.\d{1,3}){3}$/.test(u.hostname) || u.hostname.startsWith("[")) {
       return dbUrl;
     }
     const [ipv4] = await dns.resolve4(u.hostname);
-    u.searchParams.set("hostaddr", ipv4);
+    u.hostname = ipv4;
     return u.toString();
   } catch {
     return dbUrl;
@@ -100,7 +100,7 @@ async function main() {
   const dbUrl = process.env.DATABASE_URL;
   let connectionArgs;
   if (dbUrl) {
-    const resolvedUrl = await addHostAddr(dbUrl);
+    const resolvedUrl = await resolveToIPv4Url(dbUrl);
     connectionArgs = ["--db-url", resolvedUrl];
   } else {
     connectionArgs = ["--linked"];

@@ -1,5 +1,4 @@
 import { spawnSync } from "node:child_process";
-import dns from "node:dns/promises";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
@@ -61,26 +60,7 @@ function run(command, args) {
   }
 }
 
-// Replaces the hostname with its IPv4 address so the Docker container that
-// the Supabase CLI uses to run pg_dump connects via IPv4. Docker on GitHub
-// Actions resolves hostnames to IPv6 addresses that are unreachable from the
-// container. sslmode=require (Supabase default) only requires encryption and
-// does not verify the hostname, so connecting to an IP address works fine.
-async function resolveToIPv4Url(dbUrl) {
-  try {
-    const u = new URL(dbUrl);
-    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(u.hostname) || u.hostname.startsWith("[")) {
-      return dbUrl;
-    }
-    const [ipv4] = await dns.resolve4(u.hostname);
-    u.hostname = ipv4;
-    return u.toString();
-  } catch {
-    return dbUrl;
-  }
-}
-
-async function main() {
+function main() {
   const repoRoot = process.cwd();
   const backupsDir = path.join(repoRoot, "backups");
   mkdirSync(backupsDir, { recursive: true });
@@ -98,33 +78,33 @@ async function main() {
   const schemaArg = schemas.join(",");
 
   const dbUrl = process.env.DATABASE_URL;
-  let connectionArgs;
-  if (dbUrl) {
-    const resolvedUrl = await resolveToIPv4Url(dbUrl);
-    connectionArgs = ["--db-url", resolvedUrl];
-  } else {
-    connectionArgs = ["--linked"];
-  }
 
   console.log(`\n[backup] Schemas: ${schemaArg}`);
   console.log(`[backup] Writing schema to: ${schemaFile}`);
-  run("supabase", ["db", "dump", ...connectionArgs, "--schema", schemaArg, "-f", schemaFile]);
+  console.log(`[backup] Writing data to: ${dataFile}`);
 
-  console.log(`\n[backup] Writing data to: ${dataFile}`);
-  run("supabase", [
-    "db",
-    "dump",
-    ...connectionArgs,
-    "--data-only",
-    "--use-copy",
-    "--schema",
-    schemaArg,
-    "-f",
-    dataFile,
-  ]);
+  if (dbUrl) {
+    // Run pg_dump directly on the runner (bypasses Supabase CLI's Docker container,
+    // which cannot route IPv6 traffic through its bridge network on GitHub Actions).
+    const schemaPgArgs = schemas.flatMap((s) => ["-n", s]);
+    run("pg_dump", ["--schema-only", ...schemaPgArgs, "-f", schemaFile, dbUrl]);
+    run("pg_dump", ["--data-only", "--use-copy", ...schemaPgArgs, "-f", dataFile, dbUrl]);
+  } else {
+    run("supabase", ["db", "dump", "--linked", "--schema", schemaArg, "-f", schemaFile]);
+    run("supabase", [
+      "db",
+      "dump",
+      "--linked",
+      "--data-only",
+      "--use-copy",
+      "--schema",
+      schemaArg,
+      "-f",
+      dataFile,
+    ]);
+  }
 
   console.log("\n[backup] Done.");
-  console.log("[backup] If you see a password prompt, set SUPABASE_DB_PASSWORD for automation.");
 }
 
 main();

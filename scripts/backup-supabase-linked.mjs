@@ -88,7 +88,7 @@ function main() {
     // which cannot route IPv6 traffic through its bridge network on GitHub Actions).
     const schemaPgArgs = schemas.flatMap((s) => ["-n", s]);
     run("pg_dump", ["--schema-only", ...schemaPgArgs, "-f", schemaFile, dbUrl]);
-    run("pg_dump", ["--data-only", "--use-copy", ...schemaPgArgs, "-f", dataFile, dbUrl]);
+    run("pg_dump", ["--data-only", ...schemaPgArgs, "-f", dataFile, dbUrl]);
   } else {
     run("supabase", ["db", "dump", "--linked", "--schema", schemaArg, "-f", schemaFile]);
     run("supabase", [

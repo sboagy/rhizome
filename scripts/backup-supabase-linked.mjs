@@ -77,25 +77,34 @@ function main() {
   const dataFile = `${base}_data.sql`;
   const schemaArg = schemas.join(",");
 
+  const dbUrl = process.env.DATABASE_URL;
+
   console.log(`\n[backup] Schemas: ${schemaArg}`);
   console.log(`[backup] Writing schema to: ${schemaFile}`);
-  run("supabase", ["db", "dump", "--linked", "--schema", schemaArg, "-f", schemaFile]);
+  console.log(`[backup] Writing data to: ${dataFile}`);
 
-  console.log(`\n[backup] Writing data to: ${dataFile}`);
-  run("supabase", [
-    "db",
-    "dump",
-    "--linked",
-    "--data-only",
-    "--use-copy",
-    "--schema",
-    schemaArg,
-    "-f",
-    dataFile,
-  ]);
+  if (dbUrl) {
+    // Run pg_dump directly on the runner (bypasses Supabase CLI's Docker container,
+    // which cannot route IPv6 traffic through its bridge network on GitHub Actions).
+    const schemaPgArgs = schemas.flatMap((s) => ["-n", s]);
+    run("pg_dump", ["--schema-only", ...schemaPgArgs, "-f", schemaFile, dbUrl]);
+    run("pg_dump", ["--data-only", ...schemaPgArgs, "-f", dataFile, dbUrl]);
+  } else {
+    run("supabase", ["db", "dump", "--linked", "--schema", schemaArg, "-f", schemaFile]);
+    run("supabase", [
+      "db",
+      "dump",
+      "--linked",
+      "--data-only",
+      "--use-copy",
+      "--schema",
+      schemaArg,
+      "-f",
+      dataFile,
+    ]);
+  }
 
   console.log("\n[backup] Done.");
-  console.log("[backup] If you see a password prompt, set SUPABASE_DB_PASSWORD for automation.");
 }
 
 main();

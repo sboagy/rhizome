@@ -437,10 +437,83 @@ Behavior:
 - require a `workflow_dispatch` input named `deploy_sha` containing the exact full commit SHA to deploy;
 - check out that exact SHA, not the current `main` HEAD;
 - verify that exact SHA has a successful GitHub Deployment record for the `staging` environment unless explicitly overridden;
+- apply production Supabase migrations for the exact checked-out SHA before deploying production runtime code;
 - build production with `.env.prod.template`;
 - deploy production Worker;
 - deploy production Pages to `tunetrees-pwa` production branch/domain;
 - run production-safe smoke tests only.
+
+### Supabase schema promotion requirement
+
+Phase 2 is not complete until the production workflow owns Supabase schema promotion, not only Worker and Pages deployment. The staging proof gate proves that the exact SHA was exercised against the migrated staging schema; production promotion must then apply the same committed migrations to production before publishing runtime code that can depend on them.
+
+Minimum implementation requirement:
+
+- Add an exact TuneTrees root `package.json` script:
+  - `"db:production:schema:push": "FORCE_COLOR=1 op run --env-file=\".env.prod.template\" -- npx supabase@2.98.2 db push --db-url \"$DATABASE_URL\""`
+  - `.env.prod.template` must continue to resolve `DATABASE_URL` from `op://rhizome/shared-production/Supabase/DATABASE_URL`.
+  - `.env.staging.template` must continue to resolve staging `DATABASE_URL` from `op://rhizome/shared-staging/Supabase/DATABASE_URL`.
+- Pin the Supabase CLI version used for remote schema pushes. Either use `npx supabase@2.98.2` in the npm scripts or pin the `supabase` devDependency to exact `2.98.2` and invoke the checked-in package-lock version. Do not rely on an unpinned `npx supabase`.
+- Add a staging CI step to the already-live Phase 1 `.github/workflows/ci.yml`; this is not optional. The `deploy-staging` job must run `npm run db:staging:schema:push` before staging data refresh, staging smoke tests, and creation of the successful `staging` Deployment proof.
+- Existing `staging` Deployment proofs created before this migration gate is added are considered pre-migration-gate proofs. They are acceptable for app-only releases with no Supabase migrations, but they are not sufficient proof for a production deploy that includes schema changes.
+- The staging Deployment proof must only be created after staging migrations, staging Worker deploy, staging Pages deploy, staging data refresh, generated-contract validation, and staging smoke tests have all passed for the same SHA.
+- In `.github/workflows/deploy-production.yml`, run production schema migration after exact-SHA checkout and staging Deployment proof verification, but before production Worker and Pages deploy.
+- Production migrations must use production-scoped 1Password values from `op://rhizome/shared-production/...`; do not add separate Supabase database secrets directly to GitHub unless a later constraint forces it. The `OP_SERVICE_ACCOUNT_TOKEN` exposed to the production GitHub Environment should be scoped to the minimum 1Password vault/items needed for production deployment rather than broad account access.
+- Before any remote schema push, mask the resolved database URL with `echo "::add-mask::$DATABASE_URL"` or equivalent so a password-bearing connection string cannot appear in logs. Do this inside the `op run` context before invoking `supabase db push`.
+- Before any remote schema push, assert the target environment by parsing the resolved `DATABASE_URL` host/dbname and comparing it to the expected staging or production Supabase project host. Write only a masked, redacted, or hashed host+dbname summary to `$GITHUB_STEP_SUMMARY`; never print credentials.
+- The production migration step is covered by the same `production-promotion` workflow concurrency group with `cancel-in-progress: false`; concurrent production workflows must queue so two `supabase db push` runs cannot race against the same production database.
+- The production migration step must fail closed with Supabase CLI failure behavior; if migration fails, do not deploy Worker or Pages.
+- The production workflow job summary must record whether production migrations were applied, skipped because no pending migrations existed, or failed. Capture Supabase CLI output and branch on stable strings such as `No migrations to apply` vs. `Applying migration`; if the CLI output format changes, fail closed and require the summary logic to be updated rather than silently reporting an unknown state.
+- Before applying production migrations, run a read-only preflight such as `npx supabase@2.98.2 migration list --db-url "$DATABASE_URL"` and write the pending/applied migration summary to `$GITHUB_STEP_SUMMARY` without exposing credentials.
+- Add `timeout-minutes: 30` to the production migration step. If it times out, treat it as a failed/unknown migration state and follow the partial-migration recovery procedure below before retrying.
+- The `db:production:schema:push` command is expected to be idempotent when previous migrations were fully applied and recorded by Supabase's migration table. It is not assumed safe after a partial migration failure until an operator inspects the actual applied state.
+- Do not run data-copy, sanitization, or production-to-staging refresh scripts against production as part of schema promotion. Production schema migration is DDL-only plus any explicit migration-authored data backfill SQL.
+
+Partial migration recovery:
+
+- If a production migration fails or times out, the workflow must stop before Worker/Pages deploy.
+- The on-call operator must inspect applied state with `npx supabase@2.98.2 migration list --db-url "$DATABASE_URL"` and, when needed, direct SQL inspection of the affected objects.
+- The operator must decide whether to roll forward with a corrective migration or manually reverse the partial change. Prefer roll-forward fixes unless reversal is clearly safer and has been tested.
+- The decision and action taken must be recorded in the deployment-audit issue or workflow summary before re-triggering production deployment.
+- Do not retry the workflow blindly after a partial migration failure.
+
+Required migration compatibility model:
+
+- Default rule: every migration that can be promoted by this workflow must be backward-compatible with the currently deployed production app and Worker until the new Worker and Pages deployment completes.
+- This compatibility model is a code-review gate. CI can verify that migrations apply and that generated contracts match, but it cannot prove semantic compatibility for destructive or behavioral schema changes; authors and reviewers must check that explicitly in the PR.
+- Additive changes are normally allowed in one release: new tables, new nullable columns, new columns with safe defaults, new indexes, new views, new functions, and non-breaking trigger additions.
+- Adding a `NOT NULL` column is allowed only when the migration provides a safe default, backfills existing rows, and leaves old code compatible. Otherwise split it into multiple releases.
+- Adding constraints, unique indexes, foreign keys, or stricter checks is allowed only after validating or backfilling existing production data in the migration. Use `NOT VALID`/`VALIDATE CONSTRAINT` or an equivalent low-risk pattern where appropriate for large tables.
+- Altering column types, renaming columns, changing column semantics, tightening nullability, changing primary keys, changing RLS policies, or changing trigger behavior must be treated as potentially breaking unless explicitly proven backward-compatible.
+- Deleting columns, deleting tables, dropping views/functions used by existing code, removing enum values, or removing compatibility triggers is never a one-release change. Use expand/contract.
+
+Expand/contract scenarios:
+
+1. Add or reshape:
+   - release A: add the new schema shape while keeping the old shape working;
+   - backfill data if needed;
+   - deploy code that can read/write both old and new shape or continues using the old shape.
+2. Switch reads/writes:
+   - release B: deploy app/Worker/codegen changes that use the new shape;
+   - keep old columns/tables/views/triggers present for rollback and for any clients still running older bundles/service workers.
+3. Contract:
+   - release C, after old clients/workers are no longer expected to write the old shape: drop old columns/tables/views/triggers and remove compatibility code.
+
+Concrete examples:
+
+- Adding `public.note.summary text`: one release is acceptable if nullable or defaulted and old code ignores it.
+- Adding `public.note.summary text not null`: use a default plus backfill, or split into add nullable -> backfill -> enforce not null.
+- Renaming `public.note.body` to `content`: add `content`, dual-write/backfill, deploy readers for `content`, then later drop `body`.
+- Changing `public.media_asset.size` from `text` to `integer`: add `size_int`, backfill with validated casts, deploy code using `size_int`, then later drop/rename the old column.
+- Deleting `public.reference.url`: first remove code reads/writes and deploy, wait for old service workers/clients to age out, then drop the column in a later production deploy.
+- Tightening RLS on a synced table: first add tests and staging validation proving sync worker and browser paths still work for migrated staging data; do not combine unproven RLS tightening with unrelated schema churn.
+
+Codegen and client compatibility:
+
+- Any migration that changes synced tables must follow the generated-file workflow: apply migration locally, run schema codegen, and include generated outputs from the generator rather than hand-editing generated files.
+- Staging must validate the generated app/Worker contract against the migrated staging database before the `staging` Deployment proof is created. Minimum validation is `npm run codegen:schema:check && npm run typecheck` after `npm run db:staging:schema:push`; if `codegen:schema:check` cannot target staging directly, add an equivalent check that runs codegen against the migrated staging database URL and fails on generated diff.
+- Because TuneTrees is a PWA, old service workers or browser bundles may remain active briefly after production deploy. Migrations must account for that overlap unless the release includes an explicit cache/service-worker invalidation plan.
+- A cache/service-worker invalidation plan is required for any migration that removes or renames a column/table/view used by browser-side Drizzle queries, changes the sync protocol or generated table metadata in a way old clients cannot tolerate, or removes compatibility triggers/views/functions. Minimum acceptable mechanisms include bumping an explicit service-worker/app version used by the PWA update flow, forcing a Workbox update/activation path that calls `skipWaiting()` and coordinates `clients.claim()` with a user-visible reload prompt, or documenting why old clients remain compatible until the contract phase lands.
 
 ### Staging proof requirement
 
@@ -594,12 +667,17 @@ Likely TuneTrees files:
 
 - `.github/workflows/ci.yml`
   - add job-level `permissions: contents: read` and `deployments: write` to the staging deploy job that creates GitHub Deployment records
+  - add `npm run db:staging:schema:push` before staging data refresh and before successful staging Deployment proof creation
 - later `.github/workflows/deploy-production.yml`
+  - add exact-SHA production schema preflight, masked `db:production:schema:push`, migration summary reporting, timeout, and failure handling before Worker/Pages deploy
 - `.env.staging.template`
 - `wrangler.toml`
 - `worker/wrangler.toml`
 - `worker/package.json`
 - `package.json`
+  - add `db:production:schema:push`
+  - pin or invoke an exact Supabase CLI version for remote schema pushes
+- possibly `scripts/**` for shared/validated schema-push wrappers if masking, target assertion, migration-state parsing, or summary reporting becomes too much shell for workflow YAML
 - `playwright.config.ts` or a dedicated staging/smoke Playwright config
 - `e2e/**` for staging/smoke tests
 - possibly app-specific staging scrub config

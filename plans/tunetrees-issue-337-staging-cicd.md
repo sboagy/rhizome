@@ -450,10 +450,17 @@ Phase 2 is not complete until the production workflow owns Supabase schema promo
 Minimum implementation requirement:
 
 - Add an exact TuneTrees root `package.json` script:
-  - `"db:production:schema:push": "FORCE_COLOR=1 op run --env-file=\".env.prod.template\" -- npx supabase@2.98.2 db push --db-url \"$DATABASE_URL\""`
+  - `"db:production:schema:push": "FORCE_COLOR=1 op run --env-file=\".env.prod.template\" -- node scripts/run-supabase-schema-push.mjs --env production"`
+  - `"db:staging:schema:push": "FORCE_COLOR=1 op run --env-file=\".env.staging.template\" -- node scripts/run-supabase-schema-push.mjs --env staging"`
+  - `scripts/run-supabase-schema-push.mjs` owns masking, target assertions,
+    migration-list preflight, pinned Supabase CLI invocation, output
+    classification, and job-summary reporting.
   - `.env.prod.template` must continue to resolve `DATABASE_URL` from `op://rhizome/shared-production/Supabase/DATABASE_URL`.
   - `.env.staging.template` must continue to resolve staging `DATABASE_URL` from `op://rhizome/shared-staging/Supabase/DATABASE_URL`.
-- Pin the Supabase CLI version used for remote schema pushes. Either use `npx supabase@2.98.2` in the npm scripts or pin the `supabase` devDependency to exact `2.98.2` and invoke the checked-in package-lock version. Do not rely on an unpinned `npx supabase`.
+- Pin the Supabase CLI version used for remote schema pushes inside
+  `scripts/run-supabase-schema-push.mjs` (`supabase@2.98.2`) or pin the
+  `supabase` devDependency to exact `2.98.2` and invoke the checked-in
+  package-lock version. Do not rely on an unpinned `npx supabase`.
 - Add a staging CI step to the already-live Phase 1 `.github/workflows/ci.yml`; this is not optional. The `deploy-staging` job must run `npm run db:staging:schema:push` before staging data refresh, staging smoke tests, and creation of the successful `staging` Deployment proof.
 - Existing `staging` Deployment proofs created before this migration gate is added are considered pre-migration-gate proofs. They are acceptable for app-only releases with no Supabase migrations, but they are not sufficient proof for a production deploy that includes schema changes.
 - The staging Deployment proof must only be created after staging migrations, staging Worker deploy, staging Pages deploy, staging data refresh, generated-contract validation, and staging smoke tests have all passed for the same SHA.

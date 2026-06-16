@@ -323,6 +323,7 @@ Minimum implementation:
   - `phone`: set to `NULL`;
   - `raw_user_meta_data`: replace/remove PII-bearing values and ensure no email-shaped strings remain anywhere in the JSONB document;
   - `raw_app_meta_data`: replace/remove PII-bearing values and ensure no email-shaped strings remain anywhere in the JSONB document;
+  - for both JSONB metadata columns, use `[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}` as the exact email-shaped detector;
   - `email_change`: set to `NULL` or an equivalent empty value;
   - `encrypted_password`: replace with a fixed staging-only bcrypt hash, stored as a script constant and never derived from production data;
   - `confirmation_token`, `recovery_token`, `email_change_token_new`, `email_change_token_current`, and `reauthentication_token`: zero out using `NULL` or an equivalent empty value.
@@ -354,7 +355,7 @@ Minimum implementation:
 - If same-transaction sanitization is not technically possible, sanitization must run immediately after restore with an `ON ERROR`/failure trap that deletes all non-whitelisted `auth.users` rows before the job exits.
 - If sanitization fails, CI must fail fast and delete the non-whitelisted staging `auth.users` rows.
 - Fail CI if any non-whitelisted `auth.users.email` remains outside the safe staging domain.
-- Fail CI if any non-whitelisted `auth.users.raw_user_meta_data` or `auth.users.raw_app_meta_data` JSONB value contains an email-shaped string anywhere in the document, not only at top-level keys.
+- Fail CI if any non-whitelisted `auth.users.raw_user_meta_data` or `auth.users.raw_app_meta_data` JSONB value contains an email-shaped string anywhere in the document, not only at top-level keys. Implement this as `ci/check_no_emails_in_jsonb.py`, run by CI against both columns after sanitization; the script must recursively walk all JSON nodes, including objects and arrays, test every string scalar with `[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`, and exit nonzero on any match.
 - Fail CI if `auth.identities` contains rows for non-whitelisted users after restore, because production OAuth identities must not be copied into staging.
 - Fail CI if any named TuneTrees `public` PII column listed above retains non-whitelisted production-looking PII after sanitization.
 - Fail CI if staging `SUPABASE_URL` or `DATABASE_URL` points at production.
@@ -375,7 +376,7 @@ Safety gates:
 - refuse to run if staging Supabase SMTP/email-provider state cannot be verified before restoring `auth.users`;
 - protect the local-auth-sanitize, restore, post-restore-sanitize, and validation sequence with fail-fast behavior; because raw auth rows are never inserted into staging, cleanup must still delete non-whitelisted `auth.users` rows if a later validation step fails;
 - trap restore/sanitization failures and delete all non-whitelisted `auth.users` rows before failing the job;
-- validate sanitized JSONB recursively for email-shaped strings, including nested objects and arrays in `raw_user_meta_data` and `raw_app_meta_data`;
+- validate sanitized JSONB recursively through the deterministic CI runner `ci/check_no_emails_in_jsonb.py`, including nested objects and arrays in `raw_user_meta_data` and `raw_app_meta_data`;
 - validate that `auth.identities` has no rows for non-whitelisted users after restore;
 - validate the named `public.user_profile` PII columns after sanitization and fail if any non-whitelisted values remain production-looking;
 - keep verbose `psql`/`pg_dump` logging off for all auth dump/restore operations to prevent PII from entering CI logs;

@@ -399,15 +399,15 @@ Add a staging Playwright config/project that:
 
 ### 7. CI workflow changes
 
-Modify existing `.github/workflows/ci.yml`:
+Modify `.github/workflows/ci.yml` and add a separate staging workflow, such as `.github/workflows/ci-staging.yml`, or an equivalent reusable workflow:
 
 - keep current quality/unit/local E2E/PWA gates;
 - split CI concurrency behavior so fast feedback remains cancellable but staging environment mutations are serialized:
-  - keep `cancel-in-progress: true` for quality, unit, local E2E, and local PWA jobs;
-  - move staging deploy, production-to-staging data refresh, and staging smoke/E2E tests into a separate job or reusable workflow with its own concurrency group;
-  - use a staging deploy concurrency group such as `staging-deploy-${{ github.ref }}`;
-  - set `cancel-in-progress: false` for the staging deploy concurrency group so rapid `main` pushes queue instead of killing an in-progress deploy/refresh/test sequence;
-  - do not rely on the current top-level `concurrency: cancel-in-progress: true` for jobs that mutate staging.
+  - keep `cancel-in-progress: true` only in the fast-feedback `ci.yml` workflow for quality, unit, local E2E, and local PWA jobs;
+  - move staging deploy, production-to-staging data refresh, and staging smoke/E2E tests out of `ci.yml` into the separate staging workflow;
+  - give the staging workflow its own top-level concurrency group, such as `staging-deploy-${{ github.ref }}`;
+  - set top-level `cancel-in-progress: false` in the staging workflow so rapid `main` pushes queue instead of killing an in-progress deploy/refresh/test sequence;
+  - do not rely on job-level concurrency inside a workflow that still has workflow-level `cancel-in-progress: true`, because workflow cancellation can terminate all jobs in that run.
 - The staging deploy job that creates GitHub Deployment records must declare job-level permissions:
   - `contents: read`, for checkout;
   - `deployments: write`, for `gh api repos/.../deployments` and deployment status creation;
@@ -421,7 +421,7 @@ Modify existing `.github/workflows/ci.yml`:
 - refresh staging DB from production unless disabled;
 - run staging smoke/E2E tests after deploy and data refresh.
 
-Without the separate non-cancelling staging concurrency group, rapid PR merge sequences can cancel a data refresh or deploy mid-flight and corrupt the staging environment.
+Without the separate non-cancelling staging workflow, rapid PR merge sequences can cancel a data refresh or deploy mid-flight and corrupt the staging environment.
 
 ## Phase 2: TuneTrees Production Manual Deploy
 
@@ -610,6 +610,9 @@ Add a production-to-staging R2 copy workflow/script for user-upload objects:
 - copy only object keys referenced by staging-copied `public.media_asset`/reference metadata, unless a full bucket sync is explicitly requested;
 - preserve content type and object metadata;
 - skip unchanged objects by ETag/size where possible;
+- fail and exit nonzero if any object key referenced in staging metadata cannot be found in the source bucket;
+- compare object metadata explicitly, including content type and custom headers, and fail if metadata has changed even when ETag and size match;
+- report the specific keys that failed source resolution or metadata comparison instead of silently skipping them;
 - never delete staging objects by default;
 - support dry-run mode;
 - refuse to run if source and target buckets are the same;
@@ -674,8 +677,11 @@ No further clarifying questions remain before top-down review.
 Likely TuneTrees files:
 
 - `.github/workflows/ci.yml`
+  - keep fast-feedback quality/unit/local E2E/PWA jobs cancellable
+- `.github/workflows/ci-staging.yml` or equivalent reusable staging workflow
   - add job-level `permissions: contents: read` and `deployments: write` to the staging deploy job that creates GitHub Deployment records
   - add `npm run db:staging:schema:push` before staging data refresh and before successful staging Deployment proof creation
+  - use top-level staging concurrency with `cancel-in-progress: false`
 - later `.github/workflows/deploy-production.yml`
   - add exact-SHA production schema preflight, masked `db:production:schema:push`, migration summary reporting, timeout, and failure handling before Worker/Pages deploy
 - `.env.staging.template`

@@ -126,11 +126,25 @@ log_ok()   { printf '   OK: %s\n' "$*"; }
 log_skip() { printf '   skip: %s (already applied)\n' "$*"; }
 log_warn() { printf '   WARN: %s\n' "$*" >&2; }
 
+redact_db_url() {
+    local value="$1"
+    if [[ -z "${value}" ]]; then
+        printf ''
+        return
+    fi
+
+    # Avoid printing password-bearing DATABASE_URL/DB_URL values in remote CI
+    # logs while still showing enough target context to debug wrong-project
+    # mistakes. Keep the implementation shell-only so the script remains
+    # portable on minimal CI runners.
+    printf '%s' "${value}" | sed -E 's#(postgres(ql)?://)[^/@]*@#\1***:***@#'
+}
+
 log_runtime_context() {
     log "db-push-local starting"
     log "Mode: ${MODE}"
     log "Assume cleared public: ${ASSUME_CLEARED_PUBLIC}"
-    log "DB URL: ${DB_URL}"
+    log "DB URL: $(redact_db_url "${DB_URL}")"
     log "App directories (${#APP_DIRS[@]}): ${APP_DIRS[*]}"
 }
 

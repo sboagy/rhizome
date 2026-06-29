@@ -8,6 +8,8 @@ Issue: https://github.com/sboagy/tunetrees/issues/683
 - [x] Initial issue and current-code survey.
 - [x] Public Gemini share reviewed.
 - [x] Clarifying questions answered.
+- [x] OPFS and sync-optimization context reviewed.
+- [x] Full-app baseline priority clarified.
 - [ ] Implementation approved by Scott.
 - [ ] Implementation complete.
 - [ ] TuneTrees validation complete.
@@ -102,6 +104,8 @@ Scott's answers refine the implementation direction:
 - Start with generic worker-side batching for PUSH and evaluate whether that is enough before designing generated Postgres RPC delegation.
 - Do not treat page-size increases as the real initial-sync solution. Prior experiments with page sizes were not enough, and the plan should not be timid about solving user-visible slowness.
 - Optimize for user-perceived performance, especially initial hydration and rehydration. The data volume is relatively small; the problem is overhead and round-trip accumulation rather than enormous changed-row counts.
+- Establish the baseline first in the full TuneTrees app against staging, not first in isolated `oosync` unit tests. Unit tests are still required before risky refactors, but they are not the primary baseline.
+- If a clean TuneTrees login does not reach a usable updated state after multiple minutes, treat that as the first Phase 0 blocker. Diagnose and fix the stuck hydration/readiness path before judging batching improvements.
 - Treat OPFS as a separate local-durability/storage migration; for the current `sboagy` local DB size of 6.92 MB, the sync path is the likely dominant bottleneck.
 - Include a production-ready prepared-statement toggle, but keep it in a distinct phase.
 - Test oosync changes with TuneTrees and cubefsrs from the feature branch/worktree before committing or merging oosync to `main`.
@@ -219,13 +223,41 @@ Plan adjustment: test TuneTrees and cubefsrs against the oosync feature branch/w
 
 ## Proposed Implementation Plan
 
-### Phase 0: User-Perceived Baseline and Guard Rails
+### Phase 0: Full TuneTrees Staging Baseline And Guard Rails
 
-Goal: measure the actual wait the user experiences before changing behavior, while protecting generic boundaries.
+Goal: measure the actual wait the user experiences in the full TuneTrees app against staging before changing sync behavior, while protecting generic boundaries.
+
+The first baseline must be a clean TuneTrees login and hydration/rehydration run, not an isolated `oosync` microbenchmark. If that run never reaches a usable, updated app state after multiple minutes, the first implementation step is to add diagnostics that explain where it is stuck and then fix that blocker. Batching work should not hide or bypass a readiness bug.
 
 Tasks:
 
-- Add or use existing worker/client diagnostics to record:
+- Add or use existing TuneTrees app, `oosync` client, and worker diagnostics to record a staging-runnable clean-login timeline:
+  - auth/session ready;
+  - local SQLite opened, migrated, and ready;
+  - sync service started;
+  - first `/api/sync` request sent and response received;
+  - each hydration page/chunk requested, returned, and applied;
+  - local apply and local persistence completed;
+  - sync cursor/state updated;
+  - app readiness signal reached;
+  - repertoire list query issued, row count returned, and first render/update observed;
+  - media/download jobs started, completed, failed, or timed out.
+- Add diagnostics that distinguish the likely stuck states:
+  - sync completed but the repertoire list did not re-query or render updated local rows;
+  - sync is still paging/chunking remote data;
+  - local apply/persistence is still running or failed;
+  - media/download work is blocking or delaying app readiness;
+  - local SQLite contains expected repertoire rows but UI state did not update;
+  - local SQLite is missing expected repertoire rows after worker responses report changes;
+  - outbox, pull cursor, or initial-sync state is wedged.
+- Define the staging baseline runbook:
+  - clear browser storage/local DB for the test user;
+  - log in to staging;
+  - wait until the app reaches usable repertoire-list state or a fixed timeout such as 5 minutes;
+  - collect console, app diagnostics, worker diagnostics, `/api/sync` request counts, and elapsed timings;
+  - repeat after a local reset/rehydration for the same account when practical.
+- Treat a baseline as valid only if TuneTrees reaches a usable updated state. If it does not, Phase 0 becomes a stuck-hydration/readiness investigation before optimization.
+- Record:
   - initial hydration elapsed time from auth/session-ready to local DB ready enough for the app to render useful data;
   - rehydration elapsed time after a cleared/reset local DB for an existing account;
   - number of `/api/sync` requests;
@@ -236,8 +268,8 @@ Tasks:
   - worker transaction duration;
   - database query/RPC duration when available;
   - total sync duration.
-- Prefer a small reproducible benchmark harness or E2E helper over ad hoc console timing, so TuneTrees and cubefsrs can both be checked.
-- Create focused `oosync` unit tests around current push behavior before refactoring.
+- Prefer a small reproducible staging measurement helper or E2E-style helper over ad hoc console timing, so Scott can run the same clean-login measurement and report comparable results.
+- After the full-app baseline diagnostics are in place, create focused `oosync` unit tests around current push behavior before refactoring.
 - Confirm no consumer-specific table names are introduced into `oosync`.
 - Keep all generated consumer files untouched until the oosync changes are ready.
 
@@ -400,9 +432,12 @@ Potential compatibility issues:
 
 Proceed in this order after approval:
 
-1. Implement generic worker-side push batching in `oosync`.
-2. Implement single/few-round-trip hydration for initial sync and rehydration, with compatibility fallback.
-3. Add a production-ready prepared-statement toggle in a distinct phase, defaulting off.
-4. Validate TuneTrees and cubefsrs against the oosync feature branch/worktree before oosync lands on `main`.
-5. Update TuneTrees and cubefsrs to consume the final validated `oosync` commit.
-6. Revisit generated Postgres RPC delegation only if benchmarks show generic batching is not enough.
+1. Add full TuneTrees staging diagnostics for clean login, hydration/rehydration, repertoire-list readiness, and download/media timing.
+2. Run the clean-login baseline. If it does not reach a usable updated state, diagnose and fix that stuck hydration/readiness issue first.
+3. Add focused `oosync` tests around current push behavior before refactoring the worker path.
+4. Implement generic worker-side push batching in `oosync`.
+5. Implement single/few-round-trip hydration for initial sync and rehydration, with compatibility fallback.
+6. Add a production-ready prepared-statement toggle in a distinct phase, defaulting off.
+7. Validate TuneTrees and cubefsrs against the oosync feature branch/worktree before oosync lands on `main`.
+8. Update TuneTrees and cubefsrs to consume the final validated `oosync` commit.
+9. Revisit generated Postgres RPC delegation only if benchmarks show generic batching is not enough.

@@ -42,6 +42,8 @@ I read:
 - `oosync.worktrees/os-sync-batch-683/ARCHITECTURE.md`
 - GitHub issue #683 body and visible comments.
 - Public Gemini share: https://share.gemini.google/ivxwGgXDgcCX
+- `plans/sync-opt-gemini.pdf`
+- `plans/issue-opfs.md`
 
 Important boundary conclusions:
 
@@ -49,7 +51,7 @@ Important boundary conclusions:
 - App-specific sync policy belongs in schema comments, `oosync.codegen.config.json`, generated artifacts, or app code.
 - Generated files in TuneTrees and cubefsrs must not be hand-edited.
 - TuneTrees uses the `public` schema; cubefsrs uses the `cubefsrs` schema; sibling apps must not import from or reference each other.
-- Rhizome is in transition. Do not describe planned shared packages as already implemented.
+- Rhizome is the stable shared architecture and infrastructure authority for this workspace; keep shared decisions here, while still avoiding app-specific domain logic in Rhizome.
 
 ## Gemini Share Context
 
@@ -68,6 +70,31 @@ Relevant conclusions for issue #683:
 
 Plan implication: treat public/reference-data caching as a possible adjacent optimization, not as the primary implementation path for this issue's oosync batching acceptance criteria.
 
+## OPFS And Local Persistence Context
+
+The OPFS issue (`plans/issue-opfs.md`) tracks a separate follow-up migration from the current browser-local persistence model:
+
+```text
+SQLite in memory -> export bytes -> IndexedDB
+IndexedDB bytes -> sqlite3_deserialize -> SQLite in memory
+```
+
+to OPFS-backed SQLite storage.
+
+The Gemini PDF reinforces that OPFS is the correct long-term move for durability, lower memory pressure, crash safety, and avoiding whole-database export/import overhead. However, it also makes the important point that OPFS is not expected to solve the specific sync-latency problem in issue #683.
+
+Current observed local footprint:
+
+- User: `sboagy`
+- IndexedDB-backed local database size: `6.92 MB`
+
+Plan implications:
+
+- A 6.92 MB local DB is small enough that raw local persistence size is unlikely to be the dominant cause of first-sync or update-sync waiting.
+- This issue should stay focused on the oosync network path: browser-to-Worker request count, Worker-to-Supabase round trips, sequential database operations, JSON/protocol overhead, and query planning.
+- OPFS should remain a separate migration after sync latency is improved, not a prerequisite or substitute for batching/hydration work.
+- Instrumentation should still separate local apply/persistence time from network/Worker/database time so we can prove where the remaining wait lives.
+
 ## Decided Direction
 
 Scott's answers refine the implementation direction:
@@ -75,6 +102,7 @@ Scott's answers refine the implementation direction:
 - Start with generic worker-side batching for PUSH and evaluate whether that is enough before designing generated Postgres RPC delegation.
 - Do not treat page-size increases as the real initial-sync solution. Prior experiments with page sizes were not enough, and the plan should not be timid about solving user-visible slowness.
 - Optimize for user-perceived performance, especially initial hydration and rehydration. The data volume is relatively small; the problem is overhead and round-trip accumulation rather than enormous changed-row counts.
+- Treat OPFS as a separate local-durability/storage migration; for the current `sboagy` local DB size of 6.92 MB, the sync path is the likely dominant bottleneck.
 - Include a production-ready prepared-statement toggle, but keep it in a distinct phase.
 - Test oosync changes with TuneTrees and cubefsrs from the feature branch/worktree before committing or merging oosync to `main`.
 
@@ -109,6 +137,7 @@ Observed in `oosync.worktrees/os-sync-batch-683`:
 - Worker `createDb(...)` uses `postgres(connectionString, { max: 1, prepare: false })`.
 - Worker initial sync returns one page for one table at a time.
 - Incremental sync also queries changed tables sequentially, but issue #683 is primarily about push batching and initial hydration.
+- Current `sboagy` IndexedDB-backed local database size is 6.92 MB, which supports the view that sync latency is dominated by protocol/round-trip overhead rather than sheer local data size.
 
 Observed in TuneTrees and cubefsrs:
 

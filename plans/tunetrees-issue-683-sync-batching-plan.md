@@ -10,12 +10,13 @@ Issue: https://github.com/sboagy/tunetrees/issues/683
 - [x] Clarifying questions answered.
 - [x] OPFS and sync-optimization context reviewed.
 - [x] Full-app baseline priority clarified.
-- [ ] Implementation approved by Scott.
+- [x] Phase 0 implementation approved by Scott.
+- [x] Initial TuneTrees baseline diagnostics added.
 - [ ] Implementation complete.
 - [ ] TuneTrees validation complete.
 - [ ] cubefsrs validation complete.
 
-No implementation work should begin until Scott explicitly gives the go-ahead.
+Phase 0 implementation began after Scott's go-ahead on 2026-06-30.
 
 ## Scope
 
@@ -142,6 +143,12 @@ Observed in `oosync.worktrees/os-sync-batch-683`:
 - Worker initial sync returns one page for one table at a time.
 - Incremental sync also queries changed tables sequentially, but issue #683 is primarily about push batching and initial hydration.
 - Current `sboagy` IndexedDB-backed local database size is 6.92 MB, which supports the view that sync latency is dominated by protocol/round-trip overhead rather than sheer local data size.
+- `oosync` already has a generic dependency mechanism:
+  - `src/codegen-schema.ts` introspects Postgres foreign keys.
+  - `buildTableSyncOrder(...)` builds a parent-before-child topological order.
+  - generated app metadata exposes this as `TABLE_SYNC_ORDER`.
+  - the browser apply path uses `TABLE_SYNC_ORDER` to sort changes within each page.
+- The current gap is that generated `SYNCABLE_TABLES` remains in the raw inferred/whitelist order, while the Worker initial-sync paginator walks `SYNCABLE_TABLES` directly. Therefore cold-start paging can fetch child tables before parent tables even though `TABLE_SYNC_ORDER` exists.
 
 Observed in TuneTrees and cubefsrs:
 
@@ -279,7 +286,60 @@ Likely validation:
 - `npm run lint`
 - targeted `npm run test -- ...sync...` or equivalent Vitest filters.
 
-### Phase 1: Generic Batched PUSH In Worker
+Phase 0 findings from the first staging clean-login diagnostics:
+
+- A clean TuneTrees staging login with baseline diagnostics enabled completed, but initial usable state arrived around `+112s`.
+- The run made `55` sequential `/api/sync` POSTs, all HTTP 200.
+- Observed request time totaled about `94s`, with roughly `1.7s` average per request.
+- The browser logged `3,473` local `SQLITE_CONSTRAINT_FOREIGNKEY` failures during local apply:
+  - `practice_record`: 1,722
+  - `reference`: 567
+  - `note`: 526
+  - `repertoire_tune`: 521
+  - `genre_tune_type`: 88
+  - `rhythm_patterns`: 25
+  - `media_asset`: 24
+- The FK failures appear in page-sized blocks, which matches the current one-table-at-a-time initial paginator and the current generated `SYNCABLE_TABLES` order.
+- `user_profile` being absent before first sync is a symptom of pre-hydration local state, not the main blocker; `user_profile` and repertoires are available immediately after initial sync completes.
+
+### Phase 1: Dependency-Ordered Initial Pull
+
+Goal: use the generic dependency information that oosync already computes so the Worker cold-start paginator pulls parent tables before child tables.
+
+Concrete proposal:
+
+- In `oosync/src/codegen-schema.ts`, compute `tableSyncOrder` before generating `table-meta.generated.ts`.
+- Derive a stable `orderedSyncableTables` from `syncableTables` sorted by:
+  - `tableSyncOrder[tableName]`;
+  - table name as a deterministic tie-breaker.
+- Pass `orderedSyncableTables` into `buildTableMetaTs(...)`, `buildAppTableMetaTs(...)`, `buildDefaultWorkerConfig(...)`, generated worker entrypoint inputs, and any other generated output that currently receives `syncableTables` as the iteration order.
+- Keep `TABLE_SYNC_ORDER` generated as explicit metadata because browser apply, push ordering, and debugging still need the numeric order.
+- Do not add TuneTrees-specific table names or config overrides. The order should continue to come from Postgres FK introspection plus existing optional `tableMeta.tableSyncOrderOverrides` in `oosync.codegen.config.json`.
+- Regenerate TuneTrees and cubefsrs artifacts from the oosync change; do not hand-edit generated files.
+
+Why this is Phase 1:
+
+- It is smaller and safer than changing the sync protocol.
+- It directly targets the observed FK storm.
+- It preserves the current cursor format because the table index simply points into a better ordered `SYNCABLE_TABLES` list.
+- It should reduce wasted local apply work even before larger/fewer hydration responses land.
+
+Expected limitations:
+
+- This will not by itself reduce the `55` serialized HTTP round trips when the total row count still spans many pages.
+- Cycles or missing FK metadata can still leave some tables ordered by the append/tie-breaker path; the existing deferred-FK retry remains necessary.
+- Existing generated order may be a visible diff for consumers, so tests should cover both TuneTrees and cubefsrs.
+
+Expected tests:
+
+- Unit-test codegen ordering with a small FK graph: parent table appears before child table in generated `SYNCABLE_TABLES`.
+- Verify `TABLE_SYNC_ORDER` and `SYNCABLE_TABLES` are consistent for non-overridden tables.
+- Verify `tableMeta.tableSyncOrderOverrides` still affects both numeric order and generated table iteration order.
+- Verify a cycle/fallback case remains deterministic.
+- Regenerate TuneTrees and cubefsrs and inspect generated diffs.
+- Re-run the TuneTrees staging clean-login baseline and compare FK-error count, request count, and hydration elapsed time.
+
+### Phase 2: Generic Batched PUSH In Worker
 
 Goal: reduce edge-to-Postgres round trips for pushes while preserving existing per-table rules.
 
@@ -312,7 +372,7 @@ Expected tests:
 - Minimal-payload retry rules still work, even if they force fallback.
 - Composite primary/conflict keys are covered.
 
-### Phase 2: Single/Few-Round-Trip Hydration
+### Phase 3: Single/Few-Round-Trip Hydration
 
 Goal: make initial hydration and rehydration fast in user-perceived terms by eliminating protocol overhead and repeated request/transaction setup, not merely by nudging page sizes.
 
@@ -343,7 +403,7 @@ Expected tests:
 - Client fallback reduces response/chunk size after retriable failures.
 - Existing clients can still use the old paginated request shape during deployment overlap.
 
-### Phase 3: Production-Ready Prepared Statement Toggle
+### Phase 4: Production-Ready Prepared Statement Toggle
 
 Goal: allow staging/production experiments with prepared statements without making them the default or risking an unguarded production rollout.
 
@@ -359,7 +419,7 @@ Open question:
 
 - Hyperdrive and Worker request-scoped I/O behavior may still make prepared statements risky or low-value compared with batching.
 
-### Phase 4: Optional Postgres RPC Delegate
+### Phase 5: Optional Postgres RPC Delegate
 
 Goal: consider the issue's preferred RPC approach if generic batching is insufficient.
 
@@ -376,7 +436,7 @@ Reasons to defer until after generic batching:
 - It increases production compatibility risk because old workers and new database functions must overlap safely.
 - It is harder to keep truly schema-agnostic unless the function is generated.
 
-### Phase 5: Branch-Based Consumer Adoption
+### Phase 6: Branch-Based Consumer Adoption
 
 Goal: prove the generic `oosync` change works for both app repos before landing oosync to `main`.
 
@@ -412,7 +472,7 @@ cubefsrs:
 
 ## Compatibility Review
 
-Expected schema impact for Phases 1-3:
+Expected schema impact for Phases 1-4:
 
 - No Supabase schema change.
 - No generated consumer file change unless protocol/config surfaces are expanded.
@@ -434,10 +494,11 @@ Proceed in this order after approval:
 
 1. Add full TuneTrees staging diagnostics for clean login, hydration/rehydration, repertoire-list readiness, and download/media timing.
 2. Run the clean-login baseline. If it does not reach a usable updated state, diagnose and fix that stuck hydration/readiness issue first.
-3. Add focused `oosync` tests around current push behavior before refactoring the worker path.
-4. Implement generic worker-side push batching in `oosync`.
-5. Implement single/few-round-trip hydration for initial sync and rehydration, with compatibility fallback.
-6. Add a production-ready prepared-statement toggle in a distinct phase, defaulting off.
-7. Validate TuneTrees and cubefsrs against the oosync feature branch/worktree before oosync lands on `main`.
-8. Update TuneTrees and cubefsrs to consume the final validated `oosync` commit.
-9. Revisit generated Postgres RPC delegation only if benchmarks show generic batching is not enough.
+3. Implement dependency-ordered initial pull by making generated `SYNCABLE_TABLES` follow the existing FK-derived `TABLE_SYNC_ORDER`.
+4. Add focused `oosync` tests around current push behavior before refactoring the worker path.
+5. Implement generic worker-side push batching in `oosync`.
+6. Implement single/few-round-trip hydration for initial sync and rehydration, with compatibility fallback.
+7. Add a production-ready prepared-statement toggle in a distinct phase, defaulting off.
+8. Validate TuneTrees and cubefsrs against the oosync feature branch/worktree before oosync lands on `main`.
+9. Update TuneTrees and cubefsrs to consume the final validated `oosync` commit.
+10. Revisit generated Postgres RPC delegation only if benchmarks show generic batching is not enough.

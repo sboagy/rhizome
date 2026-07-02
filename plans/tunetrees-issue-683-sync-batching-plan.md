@@ -15,6 +15,7 @@ Issue: https://github.com/sboagy/tunetrees/issues/683
 - [ ] Implementation complete.
 - [ ] TuneTrees validation complete.
 - [ ] cubefsrs validation complete.
+- [ ] Temporary `oosync#sync-batch-683` consumer pins removed before closing plan.
 
 Phase 0 implementation began after Scott's go-ahead on 2026-06-30.
 
@@ -447,11 +448,13 @@ Sequence:
 3. Run both consumer validation passes.
 4. Only after consumer validation passes, commit/merge/push oosync to the branch or SHA that app repos will pin.
 5. Refresh app lockfiles/pins to the final oosync SHA.
+6. Before closing the plan, remove temporary `oosync#sync-batch-683` pins from TuneTrees and cubefsrs and re-reference `oosync#main`, unless the team explicitly chooses a release tag or immutable SHA as the final dependency policy.
 
 TuneTrees:
 
 - Validate against the oosync feature branch/worktree before oosync lands on `main`.
 - Update the `oosync` dependency pin/lockfiles after the final oosync SHA is available.
+- Closeout check: ensure TuneTrees no longer references temporary `oosync#sync-batch-683` pins before issue closure.
 - Regenerate artifacts only if public generated output changes.
 - Run relevant validation:
   - `npm run codegen:schema:check` if generated artifacts are involved;
@@ -463,6 +466,7 @@ cubefsrs:
 
 - Validate against the oosync feature branch/worktree before oosync lands on `main`.
 - Update the `oosync` dependency pin/lockfiles after the final oosync SHA is available.
+- Closeout check: ensure cubefsrs no longer references temporary `oosync#sync-batch-683` pins before issue closure.
 - Regenerate artifacts only if public generated output changes.
 - Run relevant validation:
   - `npm run codegen:schema:check` if generated artifacts are involved;
@@ -501,4 +505,5 @@ Proceed in this order after approval:
 7. Add a production-ready prepared-statement toggle in a distinct phase, defaulting off.
 8. Validate TuneTrees and cubefsrs against the oosync feature branch/worktree before oosync lands on `main`.
 9. Update TuneTrees and cubefsrs to consume the final validated `oosync` commit.
-10. Revisit generated Postgres RPC delegation only if benchmarks show generic batching is not enough.
+10. Before closing, re-reference `oosync#main` in TuneTrees and cubefsrs, or document an explicit final release tag/SHA policy.
+11. Revisit generated Postgres RPC delegation only if benchmarks show generic batching is not enough.

@@ -12,6 +12,10 @@ Issue: https://github.com/sboagy/tunetrees/issues/683
 - [x] Full-app baseline priority clarified.
 - [x] Phase 0 implementation approved by Scott.
 - [x] Initial TuneTrees baseline diagnostics added.
+- [x] Initial pull dependency ordering implemented and validated enough to remove the FK-error storm from staging runs.
+- [x] Few-round-trip initial pull implemented with worker/browser diagnostics.
+- [x] Remaining initial-sync bottleneck isolated by relation kind, repeated collection setup, and payload/query cost.
+- [x] Repeated collection setup optimized with required-collection loading and signed continuation cursor state.
 - [ ] Implementation complete.
 - [ ] TuneTrees validation complete.
 - [ ] cubefsrs validation complete.
@@ -389,16 +393,140 @@ Design:
 - Respect `pullTables`, collections overrides, and RPC param overrides.
 - Keep the current paginated path as a compatibility fallback until the new hydration path is proven.
 
+Current implementation note:
+
+- The first implementation uses an optional `initialPageCount` request field rather than a separate endpoint. New oosync clients request up to 16 initial table pages per `/api/sync` response; the Worker clamps the budget and keeps the legacy one-page behavior when the field is omitted or set to `1`.
+- This should collapse TuneTrees' main initial pull from roughly 47 serialized requests to about 3 requests for the observed `sboagy` staging baseline, before any separate optimization of the metadata prefetch path.
+- Follow-up measurement should confirm whether the remaining wait shifts to metadata prefetch, local SQLite apply, or Worker/database time.
+
+Observed Phase 3 follow-up findings:
+
+- After dependency ordering and multi-page initial pull, recent staging clean-login runs have reached usable state in roughly `14-20s` depending on network/device, down from the original multi-minute baseline.
+- The Worker-side initial pull is now a small number of coalesced `/api/sync` requests rather than dozens of serialized table-page requests.
+- The remaining wait is no longer explained by the original FK-error storm or by one-request-per-table pagination alone.
+- Recent diagnostics showed a repeated fixed cost in each continuation request: the Worker reloads user-specific selection collections before pulling the next chunk.
+- Recent diagnostics also showed at least one large response payload, with notes likely contributing significantly to the transferred/applied data volume.
+- A diagnostic run on 2026-07-03 showed no synced Postgres views in the initial pull. All pulled syncable relations were generated as physical tables. Therefore Worker-side view timing is not the current bottleneck; local SQLite WASM view/query work may still matter after sync completes, but it is a separate local-apply/UI-readiness question.
+- Offline capability means the core rows cannot simply be deferred on demand. Initial sync still needs the relevant tune catalog subset, repertoires, repertoire tunes, practice records, practice queues, notes, references, media metadata, preferences, and user profile data so the app remains useful offline.
+
+Phase 3 current status as of 2026-07-03:
+
+- Required-collection loading and signed continuation cursors have now been implemented and validated on staging.
+- A clean staging login for the heavy `sboagy` account completed in roughly `9.7s` from password submit to sync callback done, down from the original roughly `112s` baseline and earlier unreliable/multi-minute runs.
+- The latest validated run used three `/api/sync` requests:
+  - browser-measured sync request time total: roughly `6.1s`;
+  - Worker handle time total: roughly `5.6s`;
+  - initial-pull query time total: roughly `5.1s`;
+  - payload total: roughly `7.6 MB`;
+  - rows pulled: `5,697`.
+- Collection setup is no longer a material bottleneck:
+  - request 1 loaded `repertoireIds` in roughly `73ms`;
+  - continuation requests carried `repertoireIds,selectedGenres` in the signed cursor and loaded no collections;
+  - total collection load time was roughly `73ms`.
+- View timing is not the explanation for the remaining wait in this path. The Worker reported only `kind=relation` entries for the initial pull.
+- The remaining time appears dominated by legitimate offline data volume and per-relation query/payload work, especially accumulated user-owned rows such as:
+  - `practice_record`: `1,722` rows;
+  - `daily_practice_queue`: `1,560` rows;
+  - `note`: `529` rows, including legacy large content in some records;
+  - `reference`: `572` rows.
+
+Performance target conclusion:
+
+- The issue's original user-perceived initial hydration problem is resolved for the sync batching/cursor layer.
+- The literal target of "under 5 seconds" should be interpreted as achievable for modest/new accounts and still desirable as a benchmark, but the heavy existing `sboagy` account now appears limited by real offline payload/query volume rather than avoidable sync orchestration overhead.
+- For this issue, call the performance target substantially achieved / close enough once TuneTrees and cubefsrs validation are complete, rather than taking on broader data-shaping work.
+- Further reduction below `5s` for heavy accumulated accounts should be tracked as separate follow-up work, not as a blocker for the batching/cursor optimization.
+
+Meaning of "stop reloading collections on each continuation page":
+
+- TuneTrees pull rules need user-specific selection state, not just `WHERE user_id = auth.uid()`.
+- The Worker builds collection state such as selected repertoire IDs and genre preferences that determine which rows are eligible to pull.
+- The first initial-sync request must load these collections.
+- Each continuation request is a separate stateless HTTP request, so the Worker previously rebuilt the same collections before fetching the next relation chunk.
+- Earlier diagnostics showed collection loading costs of roughly `1.3-1.5s` per request; with three continuation requests, several seconds could be spent repeating setup work rather than fetching/applying new rows.
+- The implemented fix is to load only required collections and carry small, signed collection state across continuation requests.
+- For initial sync, avoid carrying or computing larger derived sets such as repertoire-tune IDs. If `repertoireIds` means all repertoires owned by the user, then `repertoire_tune`, `practice_record`, and related repertoire-scoped tables can pull rows by `repertoire_ref IN repertoireIds`, which preserves offline coverage without inflating cursor state.
+
+Implemented proposal for the repeated-collection cost:
+
+- Treat `userId` as trusted only from the authenticated JWT, not from cursor state.
+- Carry only small, stable initial-sync selection state in the continuation cursor:
+  - `selectedGenres`;
+  - `repertoireIds`.
+- Sign the continuation cursor so the Worker can trust the carried selection state without re-querying it on each continuation request. A plain base64 JSON cursor is not sufficient because a client could tamper with `repertoireIds` or genre IDs.
+- Use a versioned cursor shape, for example:
+
+```json
+{
+  "v": 2,
+  "tableIndex": 16,
+  "offset": 1000,
+  "syncStartedAt": "2026-07-03T17:20:26.809Z",
+  "collections": {
+    "selectedGenres": ["ITRAD", "OLDTIME"],
+    "repertoireIds": ["..."]
+  }
+}
+```
+
+- The signed cursor is treated as a Worker-created continuation token, not as client-authored authorization. If signature verification fails, or if the cursor version is old/unknown, fall back to reloading collections normally.
+- Independently of signed cursor carry-forward, stop loading every generated collection by default. The Worker should derive the collection names needed by the current pull rules and load only those collections. For TuneTrees initial sync, the required collection set should normally be `selectedGenres` and `repertoireIds`, not generated collections such as `noteIds`, `referenceIds`, `mediaAssetIds`, etc.
+- Keep `collectionsOverride` support for app-supplied explicit overrides such as selected genres; overrides should still win over loaded/cursor-carried values for their named collections.
+- Consider reducing the number of continuation requests further only if payload limits and browser memory remain safe, but do not depend on larger payloads as the only fix.
+- A short-lived server-side cache keyed by sync run is no longer recommended for this issue because the signed cursor approach removes the repeated collection cost without introducing cache lifecycle/isolation complexity.
+
+Follow-up candidates outside issue #683:
+
+- Legacy note/reference media cleanup: some older `note` or `reference` rows may contain inline base64 image/content payloads from before the issue #422 direction to store images and other binary data in Cloudflare-backed media objects instead of embedded Jodit HTML. Migrating or cleaning those legacy payloads could reduce hydration bytes, but that is data cleanup/media migration work rather than sync batching.
+- Practice-history compaction or archive: accumulated `practice_record` and `daily_practice_queue` data now meaningfully contributes to heavy-account hydration cost. Any compaction/archive policy needs separate product decisions about what history must remain queryable offline and what can be summarized or moved aside.
+- Critical-first hydration followed by background offline completion: this could reduce first-visible readiness by pulling currently selected notes/references/practice data first and queuing the rest, but it adds complexity around correctness, progress state, offline guarantees, and user expectations. Do not include it in this issue unless the product explicitly accepts that complexity.
+
+View-vs-table timing diagnostics:
+
+- Yes, the Worker can distinguish timings for views versus tables.
+- The generated table metadata now carries `relationKind` for diagnostics, and the Worker initial-page diagnostics include both `relation=<name>` and `kind=<table|view|materialized_view|relation>`.
+- Per-relation diagnostics should include at least:
+  - relation name;
+  - relation kind;
+  - rule kind;
+  - page offset and limit;
+  - row count;
+  - query/RPC duration;
+  - transform duration;
+  - total per-relation duration;
+  - approximate payload bytes.
+- The next measurement should aggregate these lines by `kind` so we can answer:
+  - total and average time spent pulling physical tables;
+  - total and average time spent pulling views;
+  - which individual tables or views dominate query time;
+  - which individual tables or views dominate payload bytes;
+  - whether expensive views are hiding join/filter costs that are not obvious from table counts alone.
+- Collection loading is not itself a table/view pull and should be reported as separate setup time, otherwise it will blur the table-vs-view comparison.
+
+Next diagnostic decision point:
+
+- Repeated `collections loadMs` has been optimized and is no longer the largest fixed cost.
+- If the largest remaining relation costs are views, inspect those view definitions and query plans before changing payload shape.
+- If the largest remaining relation costs are specific tables, inspect their pull rules, indexes, and payload columns.
+- If Worker timings are modest but browser time remains high, shift attention to JSON parse, local SQLite apply/upsert time, local persistence/export, and UI readiness.
+- If payload bytes are dominated by notes, consider whether note content can be filtered, split, deferred, compressed by representation, or otherwise reduced without violating offline-first expectations.
+
 Key risk:
 
 - Very large JSON responses or streaming bodies can hit Worker CPU/memory/body-size limits or browser memory pressure, especially for TuneTrees catalog pulls. The fallback path should remain reliable.
 - The local SQLite apply phase may become the visible bottleneck after network round trips are removed; Phase 0 instrumentation should separate network, worker, database, and local-apply time.
+- Signed cursor security matters. Carried collection state must not allow a malicious client to expand access by editing repertoire IDs or genre selections.
+- Cursor payload size must stay bounded. `selectedGenres` and `repertoireIds` are expected to be small enough for TuneTrees, but oosync should retain a fallback if a consumer's required collection set is too large to carry safely.
 
 Expected tests:
 
 - Initial hydration for a modest account can complete in one `/api/sync` request where payload limits allow.
 - Initial sync advances across empty tables and multiple populated tables in one response/chunk.
 - Cursor resumes correctly after a partially consumed table.
+- Signed v2 initial cursor resumes without reloading carried collections.
+- Tampered signed cursor is rejected and falls back safely or errors without broadening access.
+- Required-collection analysis loads only collections referenced by the relevant pull rules.
+- TuneTrees initial sync uses only `selectedGenres` and `repertoireIds` as carried collection state.
 - RPC-backed pull rules receive correct `pageLimit` and `pageOffset`.
 - `pullTables` still limits returned tables.
 - Client fallback reduces response/chunk size after retriable failures.

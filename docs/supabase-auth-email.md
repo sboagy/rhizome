@@ -43,9 +43,9 @@ Do not use these values for local development.
 | --- | --- |
 | Production | `op://rhizome/shared-production/Resend/RESEND_API_KEY` |
 | Staging | `op://rhizome/shared-staging/Resend/RESEND_API_KEY` |
-| Local | `op://rhizome/shared-local/Resend/RESEND_API_KEY` exists but is not wired into local Supabase |
+| Local | May exist at `op://rhizome/shared-local/Resend/RESEND_API_KEY`; not wired into local Supabase |
 
-The local key may be useful for future one-off manual experiments, but it must not be configured in `supabase/config.toml` or required for local Supabase startup.
+The local reference may be available for future one-off manual experiments only. It must not be configured in `supabase/config.toml` or required for local Supabase startup.
 
 ## Production Setup
 

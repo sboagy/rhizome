@@ -38,6 +38,6 @@
 		"solid-js": "^1.9.15"
 	},
 	"dependencies": {
-		"@supabase/supabase-js": "^2.112.3"
+		"@supabase/supabase-js": "^2.112.4"
 	}
 }

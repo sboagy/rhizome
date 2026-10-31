@@ -12,6 +12,6 @@ interface AuthPanelProps {
  *
  * Must be rendered inside an `<AuthProvider>`.
  */
-export default function AuthPanel(props: AuthPanelProps): import("solid-js").JSX.Element;
+export default function AuthPanel(props: AuthPanelProps): import('solid-js').JSX.Element;
 export {};
 //# sourceMappingURL=AuthPanel.d.ts.map

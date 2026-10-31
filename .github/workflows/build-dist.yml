@@ -1,0 +1,80 @@
+name: Build packaged dist
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-dist-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install without dependency lifecycle scripts
+        run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - name: Rebuild from source
+        run: npm run build
+      - name: Verify package entry points are included
+        run: |
+          npm pack --ignore-scripts --dry-run --json > "$RUNNER_TEMP/package.json"
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const manifest = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const [packed] = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/package.json`, 'utf8'));
+          const paths = new Set(packed.files.map(file => file.path));
+          for (const key of ['main', 'module', 'types']) {
+            assert(paths.has(manifest[key].replace(/^\.\//, '')), `Missing ${key}: ${manifest[key]}`);
+          }
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rhizome-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  # No dependency installation or project code runs with repository write access.
+  update-dist:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Remove previous output, including obsolete files
+        run: rm -rf dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rhizome-dist
+          path: dist/
+      - name: Commit refreshed output when changed
+        run: |
+          git add --all -- dist
+          if git diff --cached --quiet; then
+            echo "dist already matches the build."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: rebuild packaged dist'
+          # Never force-push: a newer main must be rebuilt by its own run.
+          git push origin HEAD:refs/heads/main

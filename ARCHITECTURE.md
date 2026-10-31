@@ -12,6 +12,20 @@ Rhizome sits at the center of the workspace and provides the following:
 - **Infrastructure Tooling**: Global Supabase CLI configuration and custom `psql` deployment scripts for multi-tenant schema management.
 - **Design Authority**: Host of the master architectural specifications for the ecosystem.
 
+## Current Package Build Boundary
+
+The current package lives at the repository root: Vite compiles `src/index.ts`
+into committed `dist/` JavaScript and declarations. Git dependency consumers use
+these artifacts with `npm ci --ignore-scripts`; compiling the library belongs to
+Rhizome, not the consuming application.
+
+`.github/workflows/build-dist.yml` validates builds on pull requests and rebuilds
+and commits `dist/` on `main`. Compilation runs with read-only repository access;
+a separate job writes only the generated output. Consumers must select the
+resulting artifact commit after CI finishes. See README.md for branch protection
+requirements and local builds. This workflow does not deploy apps or change
+consumer lockfiles.
+
 ## Macro-Architecture & Design
 
 Rhizome is the source of truth for the **Shared PWA Architecture**.

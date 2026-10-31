@@ -2,12 +2,7 @@
 	"$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
 	"files": {
 		"ignoreUnknown": false,
-		"includes": [
-			"**",
-			"!dist",
-			"!node_modules",
-			"!design/**/*.drawio.svg"
-		]
+		"includes": ["**", "!dist", "!node_modules", "!design/**/*.drawio.svg"]
 	},
 	"formatter": {
 		"enabled": true,

@@ -27,9 +27,9 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.0",
-		"@solidjs/router": "^1.0.0",
+		"@solidjs/router": "^1.0.1",
 		"@typescript/typescript6": "6.0.2",
-		"solid-js": "^1.9.17",
+		"solid-js": "^1.9.18",
 		"typescript": "7.0.2",
 		"vite": "8.3.5",
 		"vite-plugin-dts": "^5.1.2",
@@ -37,7 +37,7 @@
 		"yalc": "^1.0.0-pre.53"
 	},
 	"peerDependencies": {
-		"@solidjs/router": "^0.15.0",
+		"@solidjs/router": "^0.15.0 || ^1.0.0",
 		"solid-js": "^1.9.17"
 	},
 	"dependencies": {

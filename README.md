@@ -27,6 +27,9 @@ claiming that the committed package is current.
 
 To regenerate locally:
 
+Use Node.js 26 (the version selected by `.nvmrc`) for development and package
+builds. The available static checks are `npm run lint` and `npm run check`.
+
 ```sh
 npm ci --ignore-scripts
 npm run typecheck
